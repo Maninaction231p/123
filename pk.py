@@ -50,11 +50,10 @@ if uploaded_file:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-        print(st.session_state.messages)
-
-    # Create a prompt.
-    response = model.generate_content([image, prompt])
-    print(response.text)
+            print(st.session_state.messages)
+            # Create a prompt.
+            response = model.generate_content([image, prompt])
+            print(response.text)
 
     prompt = st.chat_input("Type a message...", key="message_input")
     # Accept user input
