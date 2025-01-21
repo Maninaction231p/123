@@ -51,9 +51,7 @@ if uploaded_file:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             print(st.session_state.messages)
-            # Create a prompt.
-            response = model.generate_content([image, prompt])
-            print(response.text)
+            
 
     prompt = st.chat_input("Type a message...", key="message_input")
     # Accept user input
@@ -67,10 +65,11 @@ if uploaded_file:
         # Display assistant response in chat message container
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            response = model.generate_content([image, prompt])
+            print(prompt)
+            response1 = model.generate_content([image, prompt])
 
             # Simulate stream of response with milliseconds delay
-            message_placeholder.markdown(response.text)
+            message_placeholder.markdown(response1.text)
         # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response.text})
+        st.session_state.messages.append({"role": "assistant", "content": response1.text})
 
