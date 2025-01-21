@@ -67,6 +67,8 @@ if uploaded_file:
         # Display assistant response in chat message container
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
+            response = model.generate_content([image, prompt])
+
             # Simulate stream of response with milliseconds delay
             message_placeholder.markdown(response.text)
         # Add assistant response to chat history
