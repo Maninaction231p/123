@@ -18,7 +18,7 @@ st.set_page_config(
 
 
 with st.expander('See Details',expanded=True):
-    st.title("Upload Image") 
+    st.header("Upload Image") 
     st.markdown("To Unleash your creativity with Chamage, the innovative image-based chatbot. Share your favorite images, and Chamage will use them as inspiration to craft unique and imaginative responses. Explore new ideas, spark your creativity, and have fun conversing with Chamage!")
 
 
