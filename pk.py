@@ -29,7 +29,7 @@ with st.sidebar:
         st.image(image, width=275 ,use_container_width =False)
 
 if uploaded_file:
-    st.title("Chat with ChaMage") 
+    st.markdown("##Chat with ChaMage") 
 
 
     # Choose a Gemini model.
