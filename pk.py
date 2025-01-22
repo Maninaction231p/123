@@ -2,7 +2,6 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import requests
-import random
 import time
 import google.generativeai as genai
 
