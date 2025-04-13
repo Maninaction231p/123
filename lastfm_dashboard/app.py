@@ -1,892 +1,1106 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
+import time
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import time
-import json
-import io
-import zipfile
-import os
-import openpyxl
-from xml.etree import ElementTree as ET
+from io import BytesIO
+import datetime
+import calendar
+import base64
 
-# Last.fm API configuration
-API_KEY = "YOUR_LASTFM_API_KEY"  # Replace with your Last.fm API key
+# Set page configuration
+st.set_page_config(
+    page_title="Last.fm Insights",
+    page_icon="🎵",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# API constants
+API_KEY = "5fa9b4f47365a06fc995f1c83fb0d621"  # You need to get this from Last.fm
 BASE_URL = "http://ws.audioscrobbler.com/2.0/"
 
-# Custom CSS for minimal, elegant, stylish UI
-custom_css = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@300;400;700&display=swap');
-
-* {
-    font-family: 'Bricolage Grotesque', sans-serif !important;
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-/* Animations */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-@keyframes bounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-3px); }
-}
-
-/* Theme Styles */
-.theme-light {
-    --bg: #F5F7FA;
-    --text: #2D3748;
-    --accent: #4A5568;
-    --card-bg: rgba(255, 255, 255, 0.8);
-    --hover: #E2E8F0;
-}
-.theme-dark {
-    --bg: #1A202C;
-    --text: #E2E8F0;
-    --accent: #A0AEC0;
-    --card-bg: rgba(45, 55, 72, 0.8);
-    --hover: #4A5568;
-}
-.theme-black {
-    --bg: #000000;
-    --text: #FFFFFF;
-    --accent: #CBD5E0;
-    --card-bg: rgba(26, 32, 44, 0.8);
-    --hover: #2D3748;
-}
-.theme-blue {
-    --bg: #0E1B3D;
-    --text: #E6F3FF;
-    --accent: #90CDF4;
-    --card-bg: rgba(44, 82, 130, 0.8);
-    --hover: #2B6CB0;
-}
-.theme-orange {
-    --bg: #3C1A00;
-    --text: #FFE8D6;
-    --accent: #F6AD55;
-    --card-bg: rgba(124, 45, 18, 0.8);
-    --hover: #DD6B20;
-}
-.theme-graffiti {
-    --bg: linear-gradient(135deg, #FF0066, #00FFCC, #FFCC00, #FF0066);
-    --text: #000000;
-    --accent: #FFFFFF;
-    --card-bg: rgba(255, 255, 255, 0.7);
-    --hover: rgba(0, 0, 0, 0.1);
-    background-size: 200% 200%;
-    animation: gradientShift 8s ease infinite;
-}
-
-/* Global Styles */
-[data-testid="stAppViewContainer"] {
-    background: var(--bg);
-    color: var(--text);
-    transition: all 0.3s ease;
-    animation: fadeIn 0.5s ease-out;
-}
-
-.stMarkdown, .stDataFrame, h1, h2, h3, p, div {
-    color: var(--text) !important;
-}
-
-/* Top Navbar */
-.navbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    background: var(--card-bg);
-    backdrop-filter: blur(10px);
-    padding: 12px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    z-index: 1000;
-    border-bottom: 1px solid var(--hover);
-}
-
-.navbar-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-}
-
-.navbar-user {
-    font-size: 0.9rem;
-    opacity: 0.8;
-}
-
-.navbar-theme {
-    cursor: pointer;
-    padding: 6px;
-    border-radius: 50%;
-    transition: background 0.2s;
-}
-.navbar-theme:hover {
-    background: var(--hover);
-}
-
-/* Sidebar */
-.stSidebar {
-    background: var(--card-bg);
-    backdrop-filter: blur(10px);
-    width: 220px !important;
-    padding: 16px;
-    border-right: 1px solid var(--hover);
-    transition: width 0.3s ease;
-}
-
-.sidebar-item {
-    display: flex;
-    align-items: center;
-    padding: 10px;
-    margin: 4px 0;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.2s;
-}
-.sidebar-item:hover {
-    background: var(--hover);
-    transform: translateX(4px);
-}
-.sidebar-item svg {
-    margin-right: 8px;
-}
-
-/* Cards */
-.quick-facts-card, .error-card {
-    background: var(--card-bg);
-    backdrop-filter: blur(12px);
-    border-radius: 12px;
-    padding: 16px;
-    margin: 12px 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-    transition: transform 0.2s, box-shadow 0.2s;
-    animation: fadeIn 0.6s ease-out;
-}
-.quick-facts-card:hover, .error-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-.error-card {
-    border-left: 4px solid #FF4D4D;
-}
-
-/* Tabs */
-[data-testid="stTabs"] button {
-    background: none;
-    border: none;
-    padding: 10px 16px;
-    font-size: 1rem;
-    color: var(--text);
-    position: relative;
-    transition: color 0.2s;
-}
-[data-testid="stTabs"] button:hover {
-    color: var(--accent);
-}
-[data-testid="stTabs"] button[aria-selected="true"]::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--accent);
-}
-
-/* Charts and Tables */
-[data-testid="stPlotlyChart"], [data-testid="stDataFrame"] {
-    border-radius: 12px;
-    padding: 12px;
-    background: var(--card-bg);
-    transition: box-shadow 0.2s;
-}
-[data-testid="stPlotlyChart"]:hover, [data-testid="stDataFrame"]:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.stDataFrame tr:nth-child(even) {
-    background: rgba(0, 0, 0, 0.05);
-}
-.stDataFrame tr:hover {
-    background: var(--hover);
-}
-
-/* Graffiti Theme */
-.theme-graffiti h2, .theme-graffiti .navbar-title {
-    animation: bounce 2s infinite;
-}
-</style>
-"""
-
-# Function to apply theme
-def apply_theme(theme, custom_accent, card_opacity, font_size, animation_speed):
-    st.markdown(f"""
+# App styling
+def set_theme():
+    # Set up light/dark mode
+    theme = st.sidebar.selectbox("Select Theme", ["Light", "Dark"], index=1)
+    
+    if theme == "Dark":
+        # Apply dark theme
+        st.markdown("""
         <style>
-            [data-testid="stAppViewContainer"] {{ 
-                background: {'#F5F7FA' if theme == 'light' else 
-                            '#1A202C' if theme == 'dark' else 
-                            '#000000' if theme == 'black' else 
-                            '#0E1B3D' if theme == 'blue' else 
-                            '#3C1A00' if theme == 'orange' else 
-                            'linear-gradient(135deg, #FF0066, #00FFCC, #FFCC00, #FF0066)'};
-                background-size: {'200% 200%' if theme == 'graffiti' else 'auto'};
-                animation: {'gradientShift 8s ease infinite' if theme == 'graffiti' else 'none'};
-                font-size: {font_size}px;
-            }}
-            .stMarkdown, .stDataFrame, h1, h2, h3, p, div {{ 
-                color: {'#2D3748' if theme == 'light' else 
-                        '#E2E8F0' if theme == 'dark' else 
-                        '#FFFFFF' if theme == 'black' else 
-                        '#E6F3FF' if theme == 'blue' else 
-                        '#FFE8D6' if theme == 'orange' else 
-                        '#000000'} !important; 
-            }}
-            .quick-facts-card, .error-card {{
-                background: {'rgba(255, 255, 255, ' + str(card_opacity) + ')' if theme == 'light' or theme == 'graffiti' else 
-                            'rgba(45, 55, 72, ' + str(card_opacity) + ')' if theme == 'dark' else 
-                            'rgba(26, 32, 44, ' + str(card_opacity) + ')' if theme == 'black' else 
-                            'rgba(44, 82, 130, ' + str(card_opacity) + ')' if theme == 'blue' else 
-                            'rgba(124, 45, 18, ' + str(card_opacity) + ')'};
-                transition-duration: {animation_speed}s;
-            }}
-            .navbar, .stSidebar {{
-                background: {'rgba(255, 255, 255, ' + str(card_opacity) + ')' if theme == 'light' else 
-                            'rgba(45, 55, 72, ' + str(card_opacity) + ')' if theme == 'dark' else 
-                            'rgba(26, 32, 44, ' + str(card_opacity) + ')' if theme == 'black' else 
-                            'rgba(44, 82, 130, ' + str(card_opacity) + ')' if theme == 'blue' else 
-                            'rgba(124, 45, 18, ' + str(card_opacity) + ')' if theme == 'orange' else 
-                            'rgba(255, 255, 255, ' + str(card_opacity * 0.7) + ')'};
-            }}
-            .theme-{theme} {{ --accent: {custom_accent if custom_accent else {'#4A5568' if theme == 'light' else '#A0AEC0' if theme == 'dark' else '#CBD5E0' if theme == 'black' else '#90CDF4' if theme == 'blue' else '#F6AD55' if theme == 'orange' else '#FFFFFF'}}; }}
+        .main {
+            background-color: #121212;
+            color: #ffffff;
+        }
+        .stApp {
+            background-color: #121212;
+        }
+        .st-bw {
+            background-color: #1e1e1e;
+        }
+        .st-c0 {
+            color: #ffffff;
+        }
+        .stTextInput, .stSelectbox, .stDateInput {
+            background-color: #2a2a2a;
+            color: #ffffff;
+        }
+        .stMarkdown {
+            color: #ffffff;
+        }
+        .stButton button {
+            background-color: #4CAF50;
+            color: white;
+        }
         </style>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+    else:
+        # Apply light theme
+        st.markdown("""
+        <style>
+        .main {
+            background-color: #ffffff;
+            color: #000000;
+        }
+        .stApp {
+            background-color: #ffffff;
+        }
+        .st-bw {
+            background-color: #f0f2f6;
+        }
+        .stButton button {
+            background-color: #4CAF50;
+            color: white;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    
+    return theme
 
-# Function to fetch Last.fm data
-@st.cache_data
-def fetch_lastfm_data(method, username, limit=10, page=1, period="overall", from_ts=None, to_ts=None, **extra_params):
+# Helper functions
+def fetch_user_info(username):
+    """Fetch basic user info from Last.fm API"""
     params = {
-        "method": method,
-        "user": username,
-        "api_key": API_KEY,
-        "format": "json",
-        "limit": limit,
-        "page": page,
-        "period": period
+        'method': 'user.getinfo',
+        'user': username,
+        'api_key': API_KEY,
+        'format': 'json'
     }
-    if from_ts:
-        params["from"] = from_ts
-    if to_ts:
-        params["to"] = to_ts
-    params.update(extra_params)
     response = requests.get(BASE_URL, params=params)
     if response.status_code == 200:
         return response.json()
-    return None
-
-# Function to check if user exists
-def check_user_exists(username):
-    data = fetch_lastfm_data("user.getInfo", username)
-    return data and "user" in data
-
-# Data fetching functions
-def get_top_artists(username, limit=10, period="overall"):
-    data = fetch_lastfm_data("user.getTopArtists", username, limit, period=period)
-    if data and "topartists" in data:
-        artists = data["topartists"]["artist"]
-        return pd.DataFrame([
-            {"Artist": artist["name"], "Playcount": int(artist["playcount"])}
-            for artist in artists
-        ])
-    return pd.DataFrame()
-
-def get_top_tracks(username, limit=10, period="overall"):
-    data = fetch_lastfm_data("user.getTopTracks", username, limit, period=period)
-    if data and "toptracks" in data:
-        tracks = data["toptracks"]["track"]
-        return pd.DataFrame([
-            {"Track": track["name"], "Artist": track["artist"]["name"], "Playcount": int(track["playcount"])}
-            for track in tracks
-        ])
-    return pd.DataFrame()
-
-def get_top_albums(username, limit=10, period="overall"):
-    data = fetch_lastfm_data("user.getTopAlbums", username, limit, period=period)
-    if data and "topalbums" in data:
-        albums = data["topalbums"]["album"]
-        return pd.DataFrame([
-            {"Album": album["name"], "Artist": album["artist"]["name"], "Playcount": int(album["playcount"])}
-            for album in albums
-        ])
-    return pd.DataFrame()
-
-def get_recent_tracks(username, limit=10):
-    data = fetch_lastfm_data("user.getRecentTracks", username, limit)
-    if data and "recenttracks" in data:
-        tracks = data["recenttracks"]["track"]
-        return pd.DataFrame([
-            {
-                "Track": track["name"],
-                "Artist": track["artist"]["#text"],
-                "Album": track.get("album", {}).get("#text", "Unknown"),
-                "Date": track.get("date", {}).get("#text", "Now Playing") if "date" in track else "Now Playing"
-            }
-            for track in tracks
-        ])
-    return pd.DataFrame()
-
-def get_listening_heatmap(username, limit=200):
-    data = fetch_lastfm_data("user.getRecentTracks", username, limit)
-    if data and "recenttracks" in data:
-        tracks = data["recenttracks"]["track"]
-        df = pd.DataFrame([
-            {"Date": track.get("date", {}).get("#text", None)}
-            for track in tracks if "date" in track
-        ])
-        if not df.empty:
-            df["Date"] = pd.to_datetime(df["Date"], format="%d %b %Y, %H:%M")
-            df["Day"] = df["Date"].dt.day_name()
-            df["Hour"] = df["Date"].dt.hour
-            heatmap_data = df.groupby(["Day", "Hour"]).size().reset_index(name="Plays")
-            return heatmap_data
-    return pd.DataFrame()
-
-def get_weekly_comparison(username):
-    now = datetime.utcnow()
-    current_week_end = now
-    current_week_start = now - timedelta(days=now.weekday(), hours=now.hour, minutes=now.minute, seconds=now.second)
-    previous_week_end = current_week_start - timedelta(seconds=1)
-    previous_week_start = previous_week_end - timedelta(days=6, hours=23, minutes=59, seconds=59)
-
-    current_week_from = int(current_week_start.timestamp())
-    current_week_to = int(current_week_end.timestamp())
-    previous_week_from = int(previous_week_start.timestamp())
-    previous_week_to = int(previous_week_end.timestamp())
-
-    def fetch_all_tracks(from_ts, to_ts, limit=200):
-        all_tracks = []
-        page = 1
-        while True:
-            data = fetch_lastfm_data("user.getRecentTracks", username, limit=limit, page=page, from_ts=from_ts, to_ts=to_ts)
-            if not data or "recenttracks" not in data:
-                break
-            tracks = data["recenttracks"]["track"]
-            all_tracks.extend(tracks)
-            if len(tracks) < limit:
-                break
-            page += 1
-            time.sleep(0.5)
-        return all_tracks
-
-    current_tracks = fetch_all_tracks(current_week_from, current_week_to)
-    previous_tracks = fetch_all_tracks(previous_week_from, previous_week_to)
-
-    def calculate_metrics(tracks):
-        if not tracks:
-            return {
-                "artists": 0,
-                "tracks": 0,
-                "scrobbles": 0,
-                "listening_time": 0,
-                "avg_scrobbles": 0,
-                "most_active_day": {"day": "None", "scrobbles": 0}
-            }
-        artists = len(set(track["artist"]["#text"] for track in tracks))
-        unique_tracks = len(set((track["name"], track["artist"]["#text"]) for track in tracks))
-        scrobbles = len(tracks)
-        listening_time = (scrobbles * 3.5) / 60
-        days = 7 if tracks == previous_tracks else (now - current_week_start).days + 1
-        avg_scrobbles = scrobbles / max(days, 1)
-        dates = [datetime.strptime(track["date"]["#text"], "%d %b %Y, %H:%M") for track in tracks if "date" in track]
-        if dates:
-            day_counts = pd.Series([d.strftime("%b %d") for d in dates]).value_counts()
-            most_active = day_counts.idxmax()
-            most_active_scrobbles = day_counts.max()
-        else:
-            most_active = "None"
-            most_active_scrobbles = 0
-        return {
-            "artists": artists,
-            "tracks": unique_tracks,
-            "scrobbles": scrobbles,
-            "listening_time": round(listening_time, 1),
-            "avg_scrobbles": round(avg_scrobbles, 1),
-            "most_active_day": {"day": most_active, "scrobbles": most_active_scrobbles}
-        }
-
-    current_metrics = calculate_metrics(current_tracks)
-    previous_metrics = calculate_metrics(previous_tracks)
-
-    return {
-        "current": current_metrics,
-        "previous": previous_metrics,
-        "current_period": f"{current_week_start.strftime('%b %d')} - {current_week_end.strftime('%b %d')}",
-        "previous_period": f"{previous_week_start.strftime('%b %d')} - {previous_week_end.strftime('%b %d')}"
-    }
-
-def get_top_decades(username, limit=10):
-    data = fetch_lastfm_data("user.getTopTracks", username, limit=limit)
-    if not data or "toptracks" not in data:
-        return pd.DataFrame()
-    
-    tracks = data["toptracks"]["track"]
-    decade_data = []
-    for track in tracks:
-        track_name = track["name"]
-        artist_name = track["artist"]["name"]
-        playcount = int(track["playcount"])
-        
-        track_info = fetch_lastfm_data("track.getInfo", username, limit=1, track=track_name, artist=artist_name)
-        time.sleep(0.5)
-        
-        year = None
-        if track_info and "track" in track_info and "album" in track_info["track"]:
-            release_date = track_info["track"]["album"].get("releasedate", "")
-            try:
-                year = int(release_date.strip()[-4:]) if release_date and release_date.strip() else None
-            except (ValueError, TypeError):
-                year = None
-        
-        if year:
-            decade = (year // 10) * 10
-            decade_data.append({"Decade": str(decade), "Playcount": playcount})
-    
-    if decade_data:
-        df = pd.DataFrame(decade_data)
-        return df.groupby("Decade")["Playcount"].sum().reset_index()
-    return pd.DataFrame()
-
-# Function to export data
-def export_data(datasets, format_type, username):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if format_type == "csv":
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for name, df in datasets.items():
-                if not df.empty:
-                    csv_buffer = io.StringIO()
-                    df.to_csv(csv_buffer, index=False)
-                    zf.writestr(f"{username}_{name}.csv", csv_buffer.getvalue())
-        buffer.seek(0)
-        return buffer, f"{username}_data_{timestamp}.zip"
-
-    elif format_type == "json":
-        export_data = {name: df.to_dict(orient="records") for name, df in datasets.items() if not df.empty}
-        buffer = io.BytesIO()
-        buffer.write(json.dumps(export_data, indent=2).encode("utf-8"))
-        buffer.seek(0)
-        return buffer, f"{username}_data_{timestamp}.json"
-
-    elif format_type == "excel":
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            for name, df in datasets.items():
-                if not df.empty:
-                    df.to_excel(writer, sheet_name=name, index=False)
-        buffer.seek(0)
-        return buffer, f"{username}_data_{timestamp}.xlsx"
-
-    elif format_type == "pbix":
-        temp_dir = f"temp_{username}_{timestamp}"
-        os.makedirs(temp_dir, exist_ok=True)
-        csv_files = []
-        for name, df in datasets.items():
-            if not df.empty:
-                csv_path = os.path.join(temp_dir, f"{name}.csv")
-                df.to_csv(csv_path, index=False)
-                csv_files.append(csv_path)
-        
-        readme = (
-            "To use in Power BI:\n"
-            "1. Open Power BI Desktop.\n"
-            "2. Click 'Get Data' > 'Text/CSV'.\n"
-            "3. Import each CSV file from this folder.\n"
-            "4. Create your visualizations."
-        )
-        readme_path = os.path.join(temp_dir, "README.txt")
-        with open(readme_path, "w") as f:
-            f.write(readme)
-        
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for csv_file in csv_files:
-                zf.write(csv_file, os.path.basename(csv_file))
-            zf.write(readme_path, "README.txt")
-        
-        for file in csv_files + [readme_path]:
-            os.remove(file)
-        os.rmdir(temp_dir)
-        
-        buffer.seek(0)
-        return buffer, f"{username}_data_for_pbix_{timestamp}.zip"
-
-    elif format_type == "twb":
-        temp_dir = f"temp_{username}_{timestamp}"
-        os.makedirs(temp_dir, exist_ok=True)
-        csv_files = []
-        for name, df in datasets.items():
-            if not df.empty:
-                csv_path = os.path.join(temp_dir, f"{name}.csv")
-                df.to_csv(csv_path, index=False)
-                csv_files.append(csv_path)
-        
-        twb_content = ET.Element("workbook", xmlns="http://www.tableausoftware.com/xml/workbook", version="2021.4")
-        datasources = ET.SubElement(twb_content, "datasources")
-        for csv_file in csv_files:
-            datasource = ET.SubElement(datasources, "datasource", name=os.path.basename(csv_file).replace(".csv", ""))
-            connection = ET.SubElement(datasource, "connection", attrib={"class": "csv"})  # Fixed syntax
-            ET.SubElement(connection, "named-connections")
-            relation = ET.SubElement(connection, "relation", name=os.path.basename(csv_file), type="table")
-            metadata = ET.SubElement(datasource, "metadata")
-            for col in datasets[os.path.basename(csv_file).replace(".csv", "")].columns:
-                ET.SubElement(metadata, "column", name=col, datatype="string")
-        
-        twb_buffer = io.BytesIO()
-        ET.ElementTree(twb_content).write(twb_buffer, encoding="utf-8", xml_declaration=True)
-        twb_buffer.seek(0)
-        
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for csv_file in csv_files:
-                zf.write(csv_file, os.path.basename(csv_file))
-            zf.writestr(f"{username}_data.twb", twb_buffer.getvalue())
-        
-        for csv_file in csv_files:
-            os.remove(csv_file)
-        os.rmdir(temp_dir)
-        
-        buffer.seek(0)
-        return buffer, f"{username}_data_for_tableau_{timestamp}.zip"
-
-# Streamlit app
-st.set_page_config(page_title="Last.fm Dashboard", layout="wide")
-st.markdown(custom_css, unsafe_allow_html=True)
-
-# Session state for sidebar and export
-if "sidebar_open" not in st.session_state:
-    st.session_state.sidebar_open = True
-if "export_clicked" not in st.session_state:
-    st.session_state.export_clicked = False
-
-# Sidebar
-with st.sidebar:
-    st.markdown("""
-        <div class='sidebar-item' onclick='toggleSidebar()'>
-            <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='var(--text)'><path d='M3 6h18M3 12h18M3 18h18'/></svg>
-            <span>Menu</span>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    if st.session_state.sidebar_open:
-        st.markdown("<div class='sidebar-item'>", unsafe_allow_html=True)
-        username = st.text_input("Username", "", placeholder="Enter Last.fm username")
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.markdown("<div class='sidebar-item'>", unsafe_allow_html=True)
-        period = st.selectbox("Time Range", ["overall", "7day", "1month", "3month", "6month", "12month"], index=0)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.markdown("<div class='sidebar-item'>", unsafe_allow_html=True)
-        theme = st.selectbox("Theme", ["light", "dark", "black", "blue", "orange", "graffiti"], index=0)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        with st.expander("Customize"):
-            font_size = st.slider("Font Size (px)", 12, 20, 16)
-            card_opacity = st.slider("Card Opacity", 0.3, 1.0, 0.8, 0.1)
-            animation_speed = st.slider("Animation Speed (s)", 0.1, 1.0, 0.3, 0.1)
-            custom_accent = st.text_input("Custom Accent Color (Hex)", "", placeholder="#4A5568")
-        
-        if username and check_user_exists(username):
-            with st.expander("Export Data"):
-                export_format = st.selectbox("Format", ["csv", "json", "excel", "pbix", "twb"])
-                if st.button("Export"):
-                    st.session_state.export_clicked = True
-
-# Top Navbar
-st.markdown(f"""
-    <div class='navbar'>
-        <div class='navbar-title'>Last.fm Dashboard</div>
-        <div class='navbar-user'>{username if username else 'No user'}</div>
-        <div class='navbar-theme' onclick='toggleTheme()'>
-            <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='var(--text)'><path d='M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z'/></svg>
-        </div>
-    </div>
-""", unsafe_allow_html=True)
-
-# Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Home", "Tracks", "Albums", "Artists"])
-
-# Main content
-if not username:
-    with tab1:
-        st.markdown("<div class='error-card'>Please enter a Last.fm username in the sidebar.</div>", unsafe_allow_html=True)
-else:
-    if not check_user_exists(username):
-        with tab1:
-            st.markdown("<div class='error-card'>No user exists with that username.</div>", unsafe_allow_html=True)
     else:
-        with st.spinner("Fetching data..."):
-            # Fetch data
-            top_artists_df = get_top_artists(username, limit=10, period=period)
-            top_tracks_df = get_top_tracks(username, limit=10, period=period)
-            top_albums_df = get_top_albums(username, limit=10, period=period)
-            recent_tracks_df = get_recent_tracks(username, limit=10)
-            heatmap_df = get_listening_heatmap(username)
-            weekly_comparison = get_weekly_comparison(username)
-            decades_df = get_top_decades(username)
+        st.error(f"Error fetching user info: {response.status_code}")
+        return None
 
-            # Prepare datasets for export
-            datasets = {
-                "top_artists": top_artists_df,
-                "top_tracks": top_tracks_df,
-                "top_albums": top_albums_df,
-                "recent_tracks": recent_tracks_df,
-                "heatmap": heatmap_df,
-                "decades": decades_df,
-                "weekly_comparison": pd.DataFrame([
-                    {"Period": weekly_comparison["current_period"], **weekly_comparison["current"]},
-                    {"Period": weekly_comparison["previous_period"], **weekly_comparison["previous"]}
+def fetch_top_artists(username, period='overall', limit=10):
+    """Fetch top artists from Last.fm API"""
+    params = {
+        'method': 'user.gettopartists',
+        'user': username,
+        'period': period,
+        'limit': limit,
+        'api_key': API_KEY,
+        'format': 'json'
+    }
+    response = requests.get(BASE_URL, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Error fetching top artists: {response.status_code}")
+        return None
+
+def fetch_top_tracks(username, period='overall', limit=10):
+    """Fetch top tracks from Last.fm API"""
+    params = {
+        'method': 'user.gettoptracks',
+        'user': username,
+        'period': period,
+        'limit': limit,
+        'api_key': API_KEY,
+        'format': 'json'
+    }
+    response = requests.get(BASE_URL, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Error fetching top tracks: {response.status_code}")
+        return None
+
+def fetch_top_albums(username, period='overall', limit=10):
+    """Fetch top albums from Last.fm API"""
+    params = {
+        'method': 'user.gettopalbums',
+        'user': username,
+        'period': period,
+        'limit': limit,
+        'api_key': API_KEY,
+        'format': 'json'
+    }
+    response = requests.get(BASE_URL, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Error fetching top albums: {response.status_code}")
+        return None
+
+def fetch_recent_tracks(username, limit=50):
+    """Fetch recent tracks from Last.fm API"""
+    params = {
+        'method': 'user.getrecenttracks',
+        'user': username,
+        'limit': limit,
+        'api_key': API_KEY,
+        'format': 'json'
+    }
+    response = requests.get(BASE_URL, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Error fetching recent tracks: {response.status_code}")
+        return None
+
+def fetch_weekly_chart_list(username):
+    """Fetch available charts for a user"""
+    params = {
+        'method': 'user.getweeklychartlist',
+        'user': username,
+        'api_key': API_KEY,
+        'format': 'json'
+    }
+    response = requests.get(BASE_URL, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error(f"Error fetching weekly chart list: {response.status_code}")
+        return None
+
+def fetch_all_scrobbles(username):
+    """Fetch all scrobbles for a user (this will take time for large libraries)"""
+    all_tracks = []
+    page = 1
+    total_pages = 1
+    
+    with st.spinner('Fetching your listening history... This may take a while for large libraries.'):
+        progress_bar = st.progress(0)
+        
+        while page <= total_pages:
+            params = {
+                'method': 'user.getrecenttracks',
+                'user': username,
+                'page': page,
+                'limit': 200,  # Max allowed by API
+                'api_key': API_KEY,
+                'format': 'json'
+            }
+            
+            response = requests.get(BASE_URL, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if page == 1:
+                    total_pages = int(data['recenttracks']['@attr']['totalPages'])
+                    st.info(f"Found {data['recenttracks']['@attr']['total']} tracks across {total_pages} pages")
+                
+                # Add tracks from this page
+                if 'track' in data['recenttracks']:
+                    for track in data['recenttracks']['track']:
+                        # Skip now playing track
+                        if '@attr' in track and 'nowplaying' in track['@attr']:
+                            continue
+                            
+                        track_data = {
+                            'artist': track['artist']['#text'],
+                            'album': track['album']['#text'],
+                            'track': track['name'],
+                            'timestamp': int(track['date']['uts']),
+                            'date': track['date']['#text']
+                        }
+                        all_tracks.append(track_data)
+                
+                # Update progress
+                progress = min(page / total_pages, 1.0)
+                progress_bar.progress(progress)
+                
+                # To avoid hitting rate limits
+                if page < total_pages:
+                    time.sleep(0.25)
+                
+                page += 1
+            else:
+                st.error(f"Error fetching page {page}: {response.status_code}")
+                break
+    
+    return pd.DataFrame(all_tracks)
+
+def get_download_link(df, file_format="csv", filename="lastfm_data"):
+    """Generate a download link for the data"""
+    if file_format == "csv":
+        csv = df.to_csv(index=False)
+        b64 = base64.b64encode(csv.encode()).decode()
+        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}.csv">Download {filename}.csv</a>'
+        return href
+    elif file_format == "xlsx":
+        output = BytesIO()
+        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+        df.to_excel(writer, sheet_name='Sheet1', index=False)
+        writer.close()
+        processed_data = output.getvalue()
+        b64 = base64.b64encode(processed_data).decode()
+        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}.xlsx">Download {filename}.xlsx</a>'
+        return href
+    elif file_format == "txt":
+        txt = df.to_csv(index=False, sep='\t')
+        b64 = base64.b64encode(txt.encode()).decode()
+        href = f'<a href="data:file/txt;base64,{b64}" download="{filename}.txt">Download {filename}.txt</a>'
+        return href
+
+# Dashboard components
+def create_profile_section(username, user_info):
+    """Create the profile overview section"""
+    st.header("📊 Last.fm Insights Dashboard")
+    
+    if user_info:
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            if 'image' in user_info['user']:
+                img_url = user_info['user']['image'][-1]['#text']
+                if img_url:
+                    st.image(img_url, width=150)
+                else:
+                    st.image("https://lastfm.freetls.fastly.net/i/u/300x300/818148bf682d429dc215c1705eb27b98.jpg", width=150)
+        
+        with col2:
+            st.subheader(f"{user_info['user']['name']}'s Profile")
+            st.write(f"**Real Name:** {user_info['user'].get('realname', 'Not specified')}")
+            st.write(f"**Country:** {user_info['user'].get('country', 'Not specified')}")
+            st.write(f"**Scrobbles:** {user_info['user']['playcount']}")
+            st.write(f"**Registered:** {user_info['user']['registered']['#text']}")
+            profile_url = user_info['user']['url']
+            st.markdown(f"[Visit Last.fm Profile]({profile_url})")
+
+def create_listening_trend_chart(df):
+    """Create listening trend over time chart"""
+    st.subheader("🕒 Listening Trends Over Time")
+    
+    # Add date columns for easier filtering
+    df['datetime'] = pd.to_datetime(df['timestamp'], unit='s')
+    df['date'] = df['datetime'].dt.date
+    df['hour'] = df['datetime'].dt.hour
+    df['day_of_week'] = df['datetime'].dt.dayofweek
+    df['month'] = df['datetime'].dt.month
+    df['year'] = df['datetime'].dt.year
+    
+    # Create tabs for different timeframes
+    tab1, tab2, tab3, tab4 = st.tabs(["Daily", "Weekly", "Monthly", "Yearly"])
+    
+    with tab1:
+        # Daily listening count
+        daily_counts = df.groupby('date').size().reset_index(name='count')
+        daily_counts['date'] = pd.to_datetime(daily_counts['date'])
+        daily_counts = daily_counts.sort_values('date')
+        
+        fig = px.line(daily_counts, x='date', y='count', 
+                     title='Daily Listening Activity',
+                     labels={'count': 'Tracks Played', 'date': 'Date'})
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with tab2:
+        # Weekly pattern
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        weekly_counts = df.groupby('day_of_week').size().reset_index(name='count')
+        weekly_counts['day_name'] = weekly_counts['day_of_week'].apply(lambda x: day_names[x])
+        weekly_counts = weekly_counts.sort_values('day_of_week')
+        
+        fig = px.bar(weekly_counts, x='day_name', y='count',
+                    title='Listening Activity by Day of Week',
+                    labels={'count': 'Tracks Played', 'day_name': 'Day'})
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with tab3:
+        # Monthly pattern
+        month_names = [calendar.month_name[i] for i in range(1, 13)]
+        monthly_counts = df.groupby('month').size().reset_index(name='count')
+        monthly_counts['month_name'] = monthly_counts['month'].apply(lambda x: month_names[x-1])
+        monthly_counts = monthly_counts.sort_values('month')
+        
+        fig = px.bar(monthly_counts, x='month_name', y='count',
+                    title='Listening Activity by Month',
+                    labels={'count': 'Tracks Played', 'month_name': 'Month'})
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with tab4:
+        # Yearly pattern
+        yearly_counts = df.groupby('year').size().reset_index(name='count')
+        yearly_counts = yearly_counts.sort_values('year')
+        
+        fig = px.bar(yearly_counts, x='year', y='count',
+                    title='Listening Activity by Year',
+                    labels={'count': 'Tracks Played', 'year': 'Year'})
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Daily activity pattern by hour
+    st.subheader("⏰ Daily Activity Pattern")
+    hourly_counts = df.groupby('hour').size().reset_index(name='count')
+    fig = px.bar(hourly_counts, x='hour', y='count',
+                title='Listening Activity by Hour of Day',
+                labels={'count': 'Tracks Played', 'hour': 'Hour of Day (24h format)'})
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_top_artists_section(top_artists_data, period_name):
+    """Create the top artists section"""
+    st.subheader(f"🎤 Top Artists ({period_name})")
+    
+    if top_artists_data and 'topartists' in top_artists_data and 'artist' in top_artists_data['topartists']:
+        artists = top_artists_data['topartists']['artist']
+        
+        if not artists:
+            st.info("No top artists data available for this period.")
+            return
+            
+        # Prepare data for chart
+        artist_names = []
+        play_counts = []
+        
+        for artist in artists:
+            artist_names.append(artist['name'])
+            play_counts.append(int(artist['playcount']))
+        
+        # Reverse lists to display highest count at the top
+        artist_names.reverse()
+        play_counts.reverse()
+        
+        # Create horizontal bar chart
+        fig = go.Figure(go.Bar(
+            x=play_counts,
+            y=artist_names,
+            orientation='h',
+            marker=dict(
+                color='rgba(50, 171, 96, 0.7)',
+                line=dict(color='rgba(50, 171, 96, 1.0)', width=2)
+            )
+        ))
+        
+        fig.update_layout(
+            title=f"Top {len(artist_names)} Artists",
+            xaxis_title="Scrobbles",
+            yaxis_title="Artist",
+            height=400 + (len(artist_names) * 25)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Create grid of artists with images (if available)
+        col_count = 5
+        rows = [artists[i:i+col_count] for i in range(0, len(artists), col_count)]
+        
+        for row in rows:
+            cols = st.columns(col_count)
+            for i, artist in enumerate(row):
+                with cols[i]:
+                    # Get the largest image available
+                    img_url = artist['image'][-1]['#text'] if artist['image'] else None
+                    
+                    if img_url:
+                        st.image(img_url, width=120)
+                    else:
+                        st.image("https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png", width=120)
+                    
+                    st.write(f"**{artist['name']}**")
+                    st.write(f"{artist['playcount']} plays")
+    else:
+        st.info("No top artists data available.")
+
+def create_top_tracks_section(top_tracks_data, period_name):
+    """Create the top tracks section"""
+    st.subheader(f"🎵 Top Tracks ({period_name})")
+    
+    if top_tracks_data and 'toptracks' in top_tracks_data and 'track' in top_tracks_data['toptracks']:
+        tracks = top_tracks_data['toptracks']['track']
+        
+        if not tracks:
+            st.info("No top tracks data available for this period.")
+            return
+            
+        # Prepare data for chart
+        track_names = []
+        play_counts = []
+        
+        for track in tracks:
+            # Create a label with artist name
+            label = f"{track['name']} - {track['artist']['name']}"
+            track_names.append(label)
+            play_counts.append(int(track['playcount']))
+        
+        # Reverse lists to display highest count at the top
+        track_names.reverse()
+        play_counts.reverse()
+        
+        # Create horizontal bar chart
+        fig = go.Figure(go.Bar(
+            x=play_counts,
+            y=track_names,
+            orientation='h',
+            marker=dict(
+                color='rgba(71, 58, 131, 0.7)',
+                line=dict(color='rgba(71, 58, 131, 1.0)', width=2)
+            )
+        ))
+        
+        fig.update_layout(
+            title=f"Top {len(track_names)} Tracks",
+            xaxis_title="Scrobbles",
+            yaxis_title="Track",
+            height=400 + (len(track_names) * 25)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Create a table of tracks
+        track_data = []
+        for i, track in enumerate(tracks):
+            track_data.append({
+                "Rank": i+1,
+                "Track": track['name'],
+                "Artist": track['artist']['name'],
+                "Scrobbles": track['playcount'],
+                "URL": track['url']
+            })
+        
+        track_df = pd.DataFrame(track_data)
+        
+        # Add clickable links
+        def make_clickable(url, text):
+            return f'<a href="{url}" target="_blank">{text}</a>'
+        
+        track_df['Track'] = track_df.apply(lambda x: make_clickable(x['URL'], x['Track']), axis=1)
+        track_df = track_df.drop(columns=['URL'])
+        
+        st.write(track_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+    else:
+        st.info("No top tracks data available.")
+
+def create_top_albums_section(top_albums_data, period_name):
+    """Create the top albums section"""
+    st.subheader(f"💿 Top Albums ({period_name})")
+    
+    if top_albums_data and 'topalbums' in top_albums_data and 'album' in top_albums_data['topalbums']:
+        albums = top_albums_data['topalbums']['album']
+        
+        if not albums:
+            st.info("No top albums data available for this period.")
+            return
+            
+        # Prepare data for chart
+        album_names = []
+        play_counts = []
+        
+        for album in albums:
+            # Create a label with artist name
+            label = f"{album['name']} - {album['artist']['name']}"
+            album_names.append(label)
+            play_counts.append(int(album['playcount']))
+        
+        # Reverse lists to display highest count at the top
+        album_names.reverse()
+        play_counts.reverse()
+        
+        # Create horizontal bar chart
+        fig = go.Figure(go.Bar(
+            x=play_counts,
+            y=album_names,
+            orientation='h',
+            marker=dict(
+                color='rgba(214, 39, 40, 0.7)',
+                line=dict(color='rgba(214, 39, 40, 1.0)', width=2)
+            )
+        ))
+        
+        fig.update_layout(
+            title=f"Top {len(album_names)} Albums",
+            xaxis_title="Scrobbles",
+            yaxis_title="Album",
+            height=400 + (len(album_names) * 25)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Create grid of albums with images
+        col_count = 5
+        rows = [albums[i:i+col_count] for i in range(0, len(albums), col_count)]
+        
+        for row in rows:
+            cols = st.columns(col_count)
+            for i, album in enumerate(row):
+                with cols[i]:
+                    # Get the largest image available
+                    img_url = album['image'][-1]['#text'] if album['image'] else None
+                    
+                    if img_url:
+                        st.image(img_url, width=120)
+                    else:
+                        st.image("https://lastfm.freetls.fastly.net/i/u/300x300/c6f59c1e5e7240a4c0d427abd71f3dbb.png", width=120)
+                    
+                    st.write(f"**{album['name']}**")
+                    st.write(f"{album['artist']['name']}")
+                    st.write(f"{album['playcount']} plays")
+    else:
+        st.info("No top albums data available.")
+
+def create_listening_clock(df):
+    """Create a 24-hour listening clock visualization"""
+    st.subheader("🕰️ Listening Clock")
+    
+    # Group by hour and count
+    hourly_data = df.groupby('hour').size().reset_index(name='count')
+    
+    # Create a 24-hour clock
+    fig = go.Figure()
+    
+    # Create a polar bar chart
+    fig.add_trace(go.Barpolar(
+        r=hourly_data['count'],
+        theta=[i*15 for i in hourly_data['hour']],  # Convert hour to degrees (360/24 = 15 degrees per hour)
+        width=15,  # Width of each bar in degrees
+        marker_color=hourly_data['count'],
+        marker_colorscale='Viridis',
+        hoverinfo='text',
+        hovertext=[f'{h}:00 - {h+1}:00: {c} tracks' for h, c in zip(hourly_data['hour'], hourly_data['count'])]
+    ))
+    
+    # Update layout for a clock-like appearance
+    fig.update_layout(
+        title="24-Hour Listening Activity",
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                type='linear',
+                showticklabels=False,
+                ticks='',
+                range=[0, max(hourly_data['count']) * 1.1]
+            ),
+            angularaxis=dict(
+                tickvals=[i*15 for i in range(24)],
+                ticktext=[f"{i}" for i in range(24)],
+                direction='clockwise',
+                rotation=90
+            )
+        ),
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_listening_heatmap(df):
+    """Create a heatmap showing listening patterns by day of week and hour"""
+    st.subheader("📅 Listening Heatmap")
+    
+    # Group by day of week and hour
+    heatmap_data = df.groupby(['day_of_week', 'hour']).size().reset_index(name='count')
+    
+    # Create a pivot table for the heatmap
+    pivot_data = heatmap_data.pivot(index='day_of_week', columns='hour', values='count').fillna(0)
+    
+    # Reindex to ensure all hours are present
+    pivot_data = pivot_data.reindex(columns=range(24), fill_value=0)
+    
+    # Reindex to ensure all days are present and in correct order
+    pivot_data = pivot_data.reindex(range(7), fill_value=0)
+    
+    # Create day labels
+    day_labels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    # Create hour labels
+    hour_labels = [f"{h}:00" for h in range(24)]
+    
+    # Create heatmap
+    fig = px.imshow(
+        pivot_data.values,
+        labels=dict(x="Hour of Day", y="Day of Week", color="Tracks Played"),
+        x=hour_labels,
+        y=day_labels,
+        title="Listening Activity by Day and Hour",
+        color_continuous_scale="Viridis"
+    )
+    
+    # Update layout for better readability
+    fig.update_layout(
+        xaxis=dict(
+            tickangle=-45,
+            title_font=dict(size=14),
+            tickfont=dict(size=10)
+        ),
+        yaxis=dict(
+            title_font=dict(size=14),
+            tickfont=dict(size=12)
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_artist_diversity_chart(df):
+    """Create charts showing diversity of listening"""
+    st.subheader("🎭 Artist & Track Diversity")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Count unique artists vs total plays
+        unique_artists = df['artist'].nunique()
+        total_scrobbles = len(df)
+        
+        # Create donut chart showing repeat vs new artists
+        artist_counts = df['artist'].value_counts()
+        single_play_artists = sum(artist_counts == 1)
+        repeat_artists = unique_artists - single_play_artists
+        
+        artist_diversity = [
+            {'category': 'Artists played once', 'count': single_play_artists},
+            {'category': 'Artists played multiple times', 'count': repeat_artists}
+        ]
+        
+        fig = px.pie(
+            artist_diversity, 
+            values='count', 
+            names='category',
+            title=f"Artist Diversity: {unique_artists} unique artists out of {total_scrobbles} scrobbles",
+            hole=0.4
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Show some statistics
+        st.metric("Artist Variety Ratio", f"{(unique_artists / total_scrobbles * 100):.2f}%", 
+                 help="Percentage of scrobbles that are unique artists")
+    
+    with col2:
+        # Count unique tracks vs total plays
+        unique_tracks = df.groupby(['artist', 'track']).size().reset_index().shape[0]
+        
+        # Create donut chart showing repeat vs new tracks
+        track_counts = df.groupby(['artist', 'track']).size()
+        single_play_tracks = sum(track_counts == 1)
+        repeat_tracks = unique_tracks - single_play_tracks
+        
+        track_diversity = [
+            {'category': 'Tracks played once', 'count': single_play_tracks},
+            {'category': 'Tracks played multiple times', 'count': repeat_tracks}
+        ]
+        
+        fig = px.pie(
+            track_diversity, 
+            values='count', 
+            names='category',
+            title=f"Track Diversity: {unique_tracks} unique tracks out of {total_scrobbles} scrobbles",
+            hole=0.4
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Show some statistics
+        st.metric("Track Variety Ratio", f"{(unique_tracks / total_scrobbles * 100):.2f}%", 
+                 help="Percentage of scrobbles that are unique tracks")
+
+def create_export_section(df):
+    """Create section for exporting data"""
+    st.subheader("📤 Export Your Data")
+    
+    export_format = st.selectbox("Choose export format:", ["csv", "xlsx", "txt"])
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.info(f"Your data contains {len(df)} scrobbles that will be exported.")
+    
+    with col2:
+        if st.button("Generate Download Link"):
+            st.markdown(get_download_link(df, export_format, f"lastfm_scrobbles_{int(time.time())}"), unsafe_allow_html=True)
+
+def main():
+    # Set theme
+    theme = set_theme()
+    
+    st.sidebar.image("https://www.last.fm/static/images/logo_static.png", width=200)
+    st.sidebar.title("Last.fm Insights")
+    
+    # Username input
+    username = st.sidebar.text_input("Enter Last.fm Username:", "Boogeyman231p")
+    
+    if st.sidebar.button("Load Data") or 'user_data' in st.session_state:
+        with st.spinner("Fetching data from Last.fm..."):
+            # Fetch user info
+            user_info = fetch_user_info(username)
+            
+            if user_info:
+                # Store data in session state
+                if 'user_data' not in st.session_state:
+                    st.session_state.user_data = {
+                        'user_info': user_info,
+                        'username': username
+                    }
+                
+                create_profile_section(username, user_info)
+                
+                # Create tabs for different sections
+                tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                    "📊 Overview", 
+                    "👑 Top Charts", 
+                    "📈 Listening Patterns", 
+                    "📊 Advanced Insights", 
+                    "📤 Export Data"
                 ])
-            }
-
-            # Handle export
-            if st.session_state.export_clicked:
-                buffer, filename = export_data(datasets, export_format, username)
-                st.download_button(
-                    label="Download File",
-                    data=buffer,
-                    file_name=filename,
-                    mime="application/zip" if filename.endswith(".zip") else "application/octet-stream"
-                )
-                st.session_state.export_clicked = False
-
-            # Theme-specific chart colors
-            theme_colors = {
-                "light": "Blues",
-                "dark": "Viridis",
-                "black": "Inferno",
-                "blue": "Cividis",
-                "orange": "Oranges",
-                "graffiti": "Plotly"
-            }
-
-            # Tab 1: Home
-            with tab1:
-                st.markdown("<h2>Welcome</h2>", unsafe_allow_html=True)
-                st.markdown(f"Exploring <b>{username}</b>'s music taste", unsafe_allow_html=True)
-
-                # Quick Facts
-                st.markdown("<h3>Quick Facts</h3>", unsafe_allow_html=True)
-                current = weekly_comparison["current"]
-                previous = weekly_comparison["previous"]
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
-                    st.write(f"**This Week ({weekly_comparison['current_period']})**")
-                    st.write(f"- Listening Time: {current['listening_time']} hours")
-                    st.write(f"- Avg. Scrobbles/Day: {current['avg_scrobbles']}")
-                    st.write(f"- Most Active Day: {current['most_active_day']['day']} ({current['most_active_day']['scrobbles']} scrobbles)")
-                    st.markdown("</div>", unsafe_allow_html=True)
-                with col2:
-                    st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
-                    st.write(f"**Last Week ({weekly_comparison['previous_period']})**")
-                    st.write(f"- Listening Time: {previous['listening_time']} hours")
-                    st.write(f"- Avg. Scrobbles/Day: {previous['avg_scrobbles']}")
-                    st.write(f"- Most Active Day: {previous['most_active_day']['day']} ({previous['most_active_day']['scrobbles']} scrobbles)")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                # Weekly Insights
-                st.markdown("<h3>Weekly Insights</h3>", unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
-                    st.write(f"**This Week ({weekly_comparison['current_period']})**")
-                    st.write(f"- Unique Artists: {current['artists']}")
-                    st.write(f"- Unique Tracks: {current['tracks']}")
-                    st.write(f"- Total Scrobbles: {current['scrobbles']}")
-                    st.markdown("</div>", unsafe_allow_html=True)
-                with col2:
-                    st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
-                    st.write(f"**Last Week ({weekly_comparison['previous_period']})**")
-                    st.write(f"- Unique Artists: {previous['artists']}")
-                    st.write(f"- Unique Tracks: {previous['tracks']}")
-                    st.write(f"- Total Scrobbles: {previous['scrobbles']}")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                # Top Decades
-                st.markdown("<h3>Top Decades</h3>", unsafe_allow_html=True)
-                if not decades_df.empty:
-                    st.dataframe(decades_df, use_container_width=True)
-                    fig_decades = px.bar(
-                        decades_df,
-                        x="Decade",
-                        y="Playcount",
-                        title="",
-                        color="Playcount",
-                        color_continuous_scale=theme_colors[theme]
-                    )
-                    fig_decades.update_layout(
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_decades, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No decade data available (release years may be missing).</div>", unsafe_allow_html=True)
-
-                # Quick Insights
-                st.markdown("<h3>Quick Insights</h3>", unsafe_allow_html=True)
-                if not top_artists_df.empty:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
-                        st.write(f"🎸 Favorite Artist: **{top_artists_df.iloc[0]['Artist']}**")
-                        if not top_tracks_df.empty:
-                            st.write(f"🎵 Top Track: **{top_tracks_df.iloc[0]['Track']}**")
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    with col2:
-                        st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
-                        if not top_albums_df.empty:
-                            st.write(f"💿 Top Album: **{top_albums_df.iloc[0]['Album']}**")
-                        if not recent_tracks_df.empty and "Now Playing" in recent_tracks_df["Date"].values:
-                            now_playing = recent_tracks_df[recent_tracks_df["Date"] == "Now Playing"].iloc[0]
-                            st.write(f"▶️ Now Playing: **{now_playing['Track']}** by **{now_playing['Artist']}**")
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                # Listening Activity Heatmap
-                if not heatmap_df.empty:
-                    st.markdown("<h3>Listening Activity</h3>", unsafe_allow_html=True)
-                    fig_heatmap = px.density_heatmap(
-                        heatmap_df,
-                        x="Hour",
-                        y="Day",
-                        z="Plays",
-                        title="",
-                        category_orders={"Day": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
-                        color_continuous_scale=theme_colors[theme]
-                    )
-                    fig_heatmap.update_layout(
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_heatmap, use_container_width=True)
-
-            # Tab 2: Tracks
-            with tab2:
-                st.markdown("<h2>Tracks</h2>", unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("<h3>Top Tracks</h3>", unsafe_allow_html=True)
-                    if not top_tracks_df.empty:
-                        st.dataframe(top_tracks_df, use_container_width=True)
-                        fig_tracks = px.bar(
-                            top_tracks_df,
-                            x="Track",
-                            y="Playcount",
-                            title="",
-                            color="Playcount",
-                            color_continuous_scale=theme_colors[theme],
-                            hover_data=["Artist"]
-                        )
-                        fig_tracks.update_layout(
-                            margin=dict(l=20, r=20, t=20, b=20),
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)"
-                        )
-                        st.plotly_chart(fig_tracks, use_container_width=True)
+                
+                with tab1:
+                    st.subheader("✨ Quick Overview")
+                    
+                    # Get recent tracks for a quick overview
+                    recent_tracks = fetch_recent_tracks(username, 10)
+                    
+                    if recent_tracks and 'recenttracks' in recent_tracks and 'track' in recent_tracks['recenttracks']:
+                        tracks = recent_tracks['recenttracks']['track']
+                        
+                        # Check if currently playing
+                        now_playing = None
+                        recent_list = []
+                        
+                        for track in tracks:
+                            if '@attr' in track and 'nowplaying' in track['@attr'] and track['@attr']['nowplaying'] == 'true':
+                                now_playing = {
+                                    'artist': track['artist']['#text'],
+                                    'album': track['album']['#text'],
+                                    'track': track['name'],
+                                    'image': track['image'][-1]['#text'] if track['image'] else None
+                                }
+                            else:
+                                recent_list.append({
+                                    'artist': track['artist']['#text'],
+                                    'album': track['album']['#text'],
+                                    'track': track['name'],
+                                    'date': track['date']['#text'] if 'date' in track else 'Unknown',
+                                    'image': track['image'][-1]['#text'] if track['image'] else None
+                                })
+                        
+                        # Display now playing if available
+                        if now_playing:
+                            st.subheader("🎧 Now Playing")
+                            col1, col2 = st.columns([1, 3])
+                            
+                            with col1:
+                                if now_playing['image']:
+                                    st.image(now_playing['image'], width=150)
+                                else:
+                                    st.image("https://lastfm.freetls.fastly.net/i/u/300x300/c6f59c1e5e7240a4c0d427abd71f3dbb.png", width=150)
+                            
+                            with col2:
+                                st.write(f"**Track:** {now_playing['track']}")
+                                st.write(f"**Artist:** {now_playing['artist']}")
+                                st.write(f"**Album:** {now_playing['album']}")
+                        
+                        # Display recent tracks
+                        st.subheader("🕰️ Recently Played")
+                        
+                        # Create columns for each track
+                        cols = st.columns(5)
+                        
+                        for i, track in enumerate(recent_list[:5]):  # Show only first 5
+                            with cols[i]:
+                                if track['image']:
+                                    st.image(track['image'], width=100)
+                                else:
+                                    st.image("https://lastfm.freetls.fastly.net/i/u/300x300/c6f59c1e5e7240a4c0d427abd71f3dbb.png", width=100)
+                                st.write(f"**{track['track']}**")
+                                st.write(f"{track['artist']}")
+                                st.write(f"*{track['date']}*")
+                    
+                    # Show listening milestones
+                    if user_info and 'user' in user_info and 'playcount' in user_info['user']:
+                        st.subheader("🏆 Listening Milestones")
+                        
+                        play_count = int(user_info['user']['playcount'])
+                        
+                        # Determine next milestone
+                        milestones = [100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000]
+                        next_milestone = next((m for m in milestones if m > play_count), play_count * 2)
+                        
+                        # Calculate progress to next milestone
+                        progress = min(play_count / next_milestone, 1.0)
+                        
+                        # Display milestone progress
+                        st.write(f"**Next milestone:** {next_milestone:,} scrobbles")
+                        st.progress(progress)
+                        st.write(f"You need {next_milestone - play_count:,} more scrobbles to reach your next milestone!")
+                
+                with tab2:
+                    # Period selector for top charts
+                    period_options = {
+                        'overall': 'All Time',
+                        '7day': 'Last 7 Days',
+                        '1month': 'Last Month',
+                        '3month': 'Last 3 Months',
+                        '6month': 'Last 6 Months',
+                        '12month': 'Last Year'
+                    }
+                    
+                    period = st.selectbox("Select Time Period:", 
+                                          list(period_options.keys()),
+                                          format_func=lambda x: period_options[x])
+                    
+                    # Fetch top artists, tracks, and albums for the selected period
+                    top_artists = fetch_top_artists(username, period, 20)
+                    top_tracks = fetch_top_tracks(username, period, 20)
+                    top_albums = fetch_top_albums(username, period, 20)
+                    
+                    # Display the top charts
+                    create_top_artists_section(top_artists, period_options[period])
+                    create_top_tracks_section(top_tracks, period_options[period])
+                    create_top_albums_section(top_albums, period_options[period])
+                
+                with tab3:
+                    # This tab shows listening patterns over time
+                    st.info("Loading your complete scrobble history for detailed analysis... This might take a while depending on your library size.")
+                    
+                    if 'scrobble_data' not in st.session_state:
+                        with st.spinner("Fetching your complete scrobble history..."):
+                            df = fetch_all_scrobbles(username)
+                            st.session_state.scrobble_data = df
                     else:
-                        st.markdown("<div class='error-card'>No top tracks data available.</div>", unsafe_allow_html=True)
-                with col2:
-                    st.markdown("<h3>Recent Tracks</h3>", unsafe_allow_html=True)
-                    if not recent_tracks_df.empty:
-                        st.dataframe(recent_tracks_df, use_container_width=True)
-                        artist_counts = recent_tracks_df["Artist"].value_counts().reset_index()
-                        artist_counts.columns = ["Artist", "Count"]
-                        fig_doughnut = go.Figure(data=[
-                            go.Pie(
-                                labels=artist_counts["Artist"],
-                                values=artist_counts["Count"],
-                                hole=0.4,
-                                textinfo="label+percent",
-                                marker=dict(colors=px.colors.qualitative.Plotly)
+                        df = st.session_state.scrobble_data
+                    
+                    # Create listening trend chart
+                    create_listening_trend_chart(df)
+                    
+                    # Create listening clock
+                    create_listening_clock(df)
+                    
+                    # Create listening heatmap
+                    create_listening_heatmap(df)
+                
+                with tab4:
+                    # This tab shows advanced insights
+                    if 'scrobble_data' not in st.session_state:
+                        with st.spinner("Fetching your complete scrobble history..."):
+                            df = fetch_all_scrobbles(username)
+                            st.session_state.scrobble_data = df
+                    else:
+                        df = st.session_state.scrobble_data
+                    
+                    # Artist and track diversity
+                    create_artist_diversity_chart(df)
+                    
+                    # Top artists by month/year
+                    st.subheader("📅 Top Artists by Month/Year")
+                    
+                    # Add date columns if not already added
+                    if 'datetime' not in df.columns:
+                        df['datetime'] = pd.to_datetime(df['timestamp'], unit='s')
+                        df['date'] = df['datetime'].dt.date
+                        df['month'] = df['datetime'].dt.month
+                        df['year'] = df['datetime'].dt.year
+                        df['month_year'] = df['datetime'].dt.strftime('%Y-%m')
+                    
+                    # Get all available years
+                    years = sorted(df['year'].unique())
+                    
+                    if years:
+                        selected_year = st.selectbox("Select Year:", years, index=len(years)-1)
+                        
+                        # Filter data for the selected year
+                        year_data = df[df['year'] == selected_year]
+                        
+                        # Group by month and artist, count plays
+                        monthly_artists = year_data.groupby(['month', 'artist']).size().reset_index(name='count')
+                        
+                        # For each month, get the top artist
+                        top_monthly_artists = []
+                        for month in range(1, 13):
+                            month_data = monthly_artists[monthly_artists['month'] == month]
+                            if not month_data.empty:
+                                top_artist = month_data.sort_values('count', ascending=False).iloc[0]
+                                top_monthly_artists.append({
+                                    'month': month,
+                                    'month_name': calendar.month_name[month],
+                                    'artist': top_artist['artist'],
+                                    'count': top_artist['count']
+                                })
+                        
+                        # Create a DataFrame for visualization
+                        top_monthly_df = pd.DataFrame(top_monthly_artists)
+                        
+                        if not top_monthly_df.empty:
+                            # Create bar chart
+                            fig = px.bar(
+                                top_monthly_df,
+                                x='month_name',
+                                y='count',
+                                color='artist',
+                                title=f'Top Artist by Month in {selected_year}',
+                                labels={'month_name': 'Month', 'count': 'Plays', 'artist': 'Artist'}
                             )
-                        ])
-                        fig_doughnut.update_layout(
-                            title="",
-                            showlegend=True,
-                            margin=dict(l=20, r=20, t=20, b=20),
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)"
+                            
+                            # Update layout for better readability
+                            fig.update_layout(xaxis_tickangle=-45)
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Show as a table as well
+                            st.write(top_monthly_df[['month_name', 'artist', 'count']].sort_values('month_name'))
+                    
+                    # Listening streak analysis
+                    st.subheader("🔥 Listening Streaks")
+                    
+                    # Convert timestamp to date for streak analysis
+                    listening_dates = pd.to_datetime(df['date']).dt.date.unique()
+                    listening_dates = sorted(listening_dates)
+                    
+                    # Calculate streaks
+                    streaks = []
+                    current_streak = 1
+                    max_streak = 1
+                    max_streak_end = listening_dates[0] if listening_dates else None
+                    
+                    for i in range(1, len(listening_dates)):
+                        # Check if consecutive days
+                        if (listening_dates[i] - listening_dates[i-1]).days == 1:
+                            current_streak += 1
+                            if current_streak > max_streak:
+                                max_streak = current_streak
+                                max_streak_end = listening_dates[i]
+                        else:
+                            # Streak broken
+                            streaks.append({
+                                'start': listening_dates[i-current_streak],
+                                'end': listening_dates[i-1],
+                                'length': current_streak
+                            })
+                            current_streak = 1
+                    
+                    # Add the last streak
+                    if listening_dates:
+                        streaks.append({
+                            'start': listening_dates[-current_streak],
+                            'end': listening_dates[-1],
+                            'length': current_streak
+                        })
+                    
+                    # Sort streaks by length (descending)
+                    streaks = sorted(streaks, key=lambda x: x['length'], reverse=True)
+                    
+                    # Display top streaks
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.metric("Longest Streak", f"{streaks[0]['length']} days" if streaks else "0 days")
+                        if streaks:
+                            st.write(f"From {streaks[0]['start']} to {streaks[0]['end']}")
+                    
+                    with col2:
+                        # Calculate current streak (if any)
+                        if listening_dates:
+                            today = datetime.date.today()
+                            yesterday = today - datetime.timedelta(days=1)
+                            
+                            if listening_dates[-1] == today:
+                                # Count backwards from today
+                                current = len(listening_dates) - 1
+                                current_streak = 1
+                                while current > 0 and (listening_dates[current] - listening_dates[current-1]).days == 1:
+                                    current_streak += 1
+                                    current -= 1
+                                st.metric("Current Streak", f"{current_streak} days")
+                            elif listening_dates[-1] == yesterday:
+                                # Count backwards from yesterday
+                                current = len(listening_dates) - 1
+                                current_streak = 1
+                                while current > 0 and (listening_dates[current] - listening_dates[current-1]).days == 1:
+                                    current_streak += 1
+                                    current -= 1
+                                st.metric("Current Streak", f"{current_streak} days (last: yesterday)")
+                            else:
+                                st.metric("Current Streak", "0 days")
+                                st.write(f"Last scrobble: {listening_dates[-1]}")
+                    
+                    # Show top 5 streaks
+                    if streaks:
+                        st.subheader("Top Listening Streaks")
+                        
+                        streak_data = []
+                        for i, streak in enumerate(streaks[:5]):
+                            streak_data.append({
+                                "Rank": i+1,
+                                "Start Date": streak['start'],
+                                "End Date": streak['end'],
+                                "Length (days)": streak['length']
+                            })
+                        
+                        st.table(pd.DataFrame(streak_data))
+                    
+                    # Artist evolution over time
+                    st.subheader("🔄 Artist Evolution Over Time")
+                    
+                    # Group by year and get top 5 artists for each year
+                    yearly_artists = df.groupby(['year', 'artist']).size().reset_index(name='count')
+                    
+                    top_yearly_artists = []
+                    for year in years:
+                        year_data = yearly_artists[yearly_artists['year'] == year]
+                        top_5 = year_data.sort_values('count', ascending=False).head(5)
+                        
+                        for _, row in top_5.iterrows():
+                            top_yearly_artists.append({
+                                'year': year,
+                                'artist': row['artist'],
+                                'count': row['count'],
+                                'rank': top_5.index.get_loc(_) + 1
+                            })
+                    
+                    # Create a DataFrame for visualization
+                    top_yearly_df = pd.DataFrame(top_yearly_artists)
+                    
+                    if not top_yearly_df.empty:
+                        # Create a stacked bar chart
+                        fig = px.bar(
+                            top_yearly_df,
+                            x='year',
+                            y='count',
+                            color='artist',
+                            title='Top 5 Artists by Year',
+                            labels={'year': 'Year', 'count': 'Plays', 'artist': 'Artist'}
                         )
-                        st.plotly_chart(fig_doughnut, use_container_width=True)
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                with tab5:
+                    # This tab allows users to export their data
+                    if 'scrobble_data' not in st.session_state:
+                        with st.spinner("Fetching your complete scrobble history..."):
+                            df = fetch_all_scrobbles(username)
+                            st.session_state.scrobble_data = df
                     else:
-                        st.markdown("<div class='error-card'>No recent tracks data available.</div>", unsafe_allow_html=True)
+                        df = st.session_state.scrobble_data
+                    
+                    create_export_section(df)
+            else:
+                st.error("Failed to fetch user data. Please check the username and try again.")
+    else:
+        st.title("Last.fm Insights Dashboard")
+        st.write("Enter your Last.fm username in the sidebar and click 'Load Data' to get started.")
+        
+        st.image("https://www.last.fm/static/images/lastfm_logo_facebook.15d8133be114.png", width=600)
+        
+        st.markdown("""
+        ## Features
+        
+        - 📊 **Complete Listening Overview**: View your entire Last.fm history visualized in interactive charts
+        - 🎤 **Top Artists, Albums & Tracks**: Discover your most played music across different time periods
+        - 📈 **Listening Patterns**: See when you listen to music the most with time-based visualizations
+        - 📅 **Artist Evolution**: Track how your music taste has changed over the years
+        - 🔍 **Advanced Insights**: Analyze your listening diversity, streaks, and patterns
+        - 📤 **Data Export**: Download your complete listening history in various formats
+        - 🌓 **Light/Dark Mode**: Choose your preferred visual theme
+        
+        Enter your Last.fm username to get started!
+        """)
 
-            # Tab 3: Albums
-            with tab3:
-                st.markdown("<h2>Albums</h2>", unsafe_allow_html=True)
-                st.markdown("<h3>Top Albums</h3>", unsafe_allow_html=True)
-                if not top_albums_df.empty:
-                    st.dataframe(top_albums_df, use_container_width=True)
-                    fig_albums = px.bar(
-                        top_albums_df,
-                        x="Album",
-                        y="Playcount",
-                        title="",
-                        color="Playcount",
-                        color_continuous_scale=theme_colors[theme],
-                        hover_data=["Artist"]
-                    )
-                    fig_albums.update_layout(
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_albums, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No top albums data available.</div>", unsafe_allow_html=True)
-
-            # Tab 4: Artists
-            with tab4:
-                st.markdown("<h2>Artists</h2>", unsafe_allow_html=True)
-                st.markdown("<h3>Top Artists</h3>", unsafe_allow_html=True)
-                if not top_artists_df.empty:
-                    st.dataframe(top_artists_df, use_container_width=True)
-                    fig_artists = px.bar(
-                        top_artists_df,
-                        x="Artist",
-                        y="Playcount",
-                        title="",
-                        color="Playcount",
-                        color_continuous_scale=theme_colors[theme]
-                    )
-                    fig_artists.update_layout(
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_artists, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No top artists data available.</div>", unsafe_allow_html=True)
-
-# Footer
-st.markdown("""
-    <div style='text-align: center; padding: 16px; color: var(--text); opacity: 0.7;'>
-        Built with ❤️ using Streamlit & Last.fm API
-    </div>
-""", unsafe_allow_html=True)
+if __name__ == "__main__":
+    main()
