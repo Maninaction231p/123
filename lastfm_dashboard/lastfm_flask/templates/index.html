@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Last.fm Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.53.0/dist/apexcharts.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="{{ theme_classes[theme].bg }} {{ theme_classes[theme].text }} min-h-screen transition-all duration-500 font-sans antialiased" data-theme="{{ theme }}">
+    <!-- Loader -->
+    {% if loading %}
+    <div id="loader" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-opacity duration-300">
+        <div class="text-center">
+            <div class="w-48 bg-gray-300/50 rounded-full h-2 mb-4 overflow-hidden">
+                <div id="progress-bar" class="h-2 rounded-full {{ theme_classes[theme].progress }} transition-all duration-300 animate-progress-pulse" style="width: 10%"></div>
+            </div>
+            <p id="progress-text" class="text-base font-semibold {{ theme_classes[theme].text }} animate-pulse">10%</p>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Mini Navbar -->
+    <nav class="fixed top-3 left-1/2 transform -translate-x-1/2 z-40 glass rounded-lg shadow-xl border {{ theme_classes[theme].border }} px-3 py-2 max-w-md w-full">
+        <form method="POST" class="flex items-center justify-center gap-2 flex-wrap">
+            <!-- Username -->
+            <input 
+                type="text" 
+                name="username" 
+                value="{{ username }}" 
+                placeholder="Username" 
+                class="w-20 bg-transparent border {{ theme_classes[theme].border }} rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-{{ theme_classes[theme].accent.replace('text-', '') }} {{ theme_classes[theme].text }} hover:bg-{{ theme_classes[theme].hover.replace('hover:bg-', '') }} transition-all"
+            >
+            <!-- Period Dropdown -->
+            <div class="relative w-24">
+                <button 
+                    type="button" 
+                    class="dropdown-toggle w-full bg-transparent border {{ theme_classes[theme].border }} rounded-md px-2 py-1 text-sm text-left {{ theme_classes[theme].text }} hover:bg-{{ theme_classes[theme].hover.replace('hover:bg-', '') }} focus:outline-none focus:ring-2 focus:ring-{{ theme_classes[theme].accent.replace('text-', '') }} transition-all flex items-center justify-between"
+                >
+                    <span>{{ period | replace("overall", "Overall") | replace("7day", "7 Days") | replace("1month", "1 Month") | replace("3month", "3 Months") | replace("6month", "6 Months") | replace("12month", "12 Months") }}</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                <div class="dropdown-menu hidden absolute mt-1 w-full bg-{{ theme_classes[theme].card.split(' ')[1] }} border {{ theme_classes[theme].border }} rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                    {% for opt in ["overall", "7day", "1month", "3month", "6month", "12month"] %}
+                    <button 
+                        type="submit" 
+                        name="period" 
+                        value="{{ opt }}" 
+                        class="block w-full text-left px-3 py-1.5 text-sm {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} hover:shadow-inner transition-all"
+                    >
+                        {{ opt | replace("overall", "Overall") | replace("7day", "7 Days") | replace("1month", "1 Month") | replace("3month", "3 Months") | replace("6month", "6 Months") | replace("12month", "12 Months") }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Theme Dropdown -->
+            <div class="relative w-24">
+                <button 
+                    type="button" 
+                    class="dropdown-toggle w-full bg-transparent border {{ theme_classes[theme].border }} rounded-md px-2 py-1 text-sm text-left {{ theme_classes[theme].text }} hover:bg-{{ theme_classes[theme].hover.replace('hover:bg-', '') }} focus:outline-none focus:ring-2 focus:ring-{{ theme_classes[theme].accent.replace('text-', '') }} transition-all flex items-center justify-between"
+                >
+                    <span>{{ theme | capitalize }}</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                <div class="dropdown-menu hidden absolute mt-1 w-full bg-{{ theme_classes[theme].card.split(' ')[1] }} border {{ theme_classes[theme].border }} rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                    {% for opt in ["light", "dark", "black", "blue", "orange", "graffiti"] %}
+                    <button 
+                        type="submit" 
+                        name="theme" 
+                        value="{{ opt }}" 
+                        class="block w-full text-left px-3 py-1.5 text-sm {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} hover:shadow-inner transition-all"
+                    >
+                        {{ opt | capitalize }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- Export -->
+            {% if username and data.recent_tracks_df %}
+            <a 
+                href="/export" 
+                id="export-btn"
+                class="{{ theme_classes[theme].btn }} px-2 py-1 rounded-md text-sm font-medium hover:shadow-md hover:scale-105 transition-all flex items-center"
+                title="Download your scrobbles as CSV"
+            >
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                </svg>
+                Export
+            </a>
+            {% else %}
+            <span 
+                class="bg-gray-600 opacity-60 px-2 py-1 rounded-md text-sm font-medium cursor-not-allowed flex items-center" 
+                title="Enter a valid username to export scrobbles"
+            >
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                </svg>
+                Export
+            </span>
+            {% endif %}
+        </form>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="content pt-16 px-4 max-w-6xl mx-auto">
+        {% if error %}
+        <div class="p-4 mb-6 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+            {{ error }}
+        </div>
+        {% elif not username %}
+        <div class="p-4 mb-6 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+            Please enter a Last.fm username in the navbar.
+        </div>
+        {% else %}
+        <!-- Tabs -->
+        <div class="tabs flex justify-center border-b {{ theme_classes[theme].border }} mb-6 sticky top-14 z-30 bg-{{ theme_classes[theme].card.split(' ')[1] }}/50 backdrop-blur-sm rounded-b-lg">
+            <button class="tab-btn px-3 py-2 text-sm font-semibold {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} border-b-2 border-transparent active:border-{{ theme_classes[theme].accent.replace('text-', '') }} transition-all" data-tab="home">Home</button>
+            <button class="tab-btn px-3 py-2 text-sm font-semibold {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} border-b-2 border-transparent" data-tab="tracks">Tracks</button>
+            <button class="tab-btn px-3 py-2 text-sm font-semibold {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} border-b-2 border-transparent" data-tab="albums">Albums</button>
+            <button class="tab-btn px-3 py-2 text-sm font-semibold {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} border-b-2 border-transparent" data-tab="artists">Artists</button>
+            <button class="tab-btn px-3 py-2 text-sm font-semibold {{ theme_classes[theme].text }} {{ theme_classes[theme].hover }} border-b-2 border-transparent" data-tab="leaderboard">Leaderboard</button>
+        </div>
+
+        <!-- Tab Content -->
+        <!-- Home -->
+        <div class="tab-content" id="home">
+            <h2 class="text-xl font-bold mb-4 animate-scale-in">Welcome, {{ username }}</h2>
+
+            <!-- Quick Facts -->
+            <h3 class="text-lg font-semibold mb-3">Quick Facts</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md hover:scale-[1.02] transition-transform duration-300 animate-scale-in">
+                    <p class="font-semibold mb-2">This Week ({{ data.weekly_comparison.current_period }})</p>
+                    <p>🎧 <span class="font-medium">{{ data.weekly_comparison.current.listening_time }}</span> hours</p>
+                    <p>📊 <span class="font-medium">{{ data.weekly_comparison.current.avg_scrobbles }}</span> avg. scrobbles/day</p>
+                    <p>📅 <span class="font-medium">{{ data.weekly_comparison.current.most_active_day.day }}</span> ({{ data.weekly_comparison.current.most_active_day.scrobbles }})</p>
+                </div>
+                <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md hover:scale-[1.02] transition-transform duration-300 animate-scale-in">
+                    <p class="font-semibold mb-2">Last Week ({{ data.weekly_comparison.previous_period }})</p>
+                    <p>🎧 <span class="font-medium">{{ data.weekly_comparison.previous.listening_time }}</span> hours</p>
+                    <p>📊 <span class="font-medium">{{ data.weekly_comparison.previous.avg_scrobbles }}</span> avg. scrobbles/day</p>
+                    <p>📅 <span class="font-medium">{{ data.weekly_comparison.previous.most_active_day.day }}</span> ({{ data.weekly_comparison.previous.most_active_day.scrobbles }})</p>
+                </div>
+            </div>
+
+            <!-- Quick Insights -->
+            <h3 class="text-lg font-semibold mb-3 mt-6">Quick Insights</h3>
+            {% if data.top_artists_df %}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md hover:scale-[1.02] transition-transform duration-300 animate-scale-in">
+                    <p>🎸 Artist: <span class="font-medium {{ theme_classes[theme].accent }}">{{ data.top_artists_df[0].Artist }}</span></p>
+                    {% if data.top_tracks_df %}
+                    <p>🎵 Track: <span class="font-medium {{ theme_classes[theme].accent }}">{{ data.top_tracks_df[0].Track }}</span></p>
+                    {% endif %}
+                </div>
+                <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md hover:scale-[1.02] transition-transform duration-300 animate-scale-in">
+                    {% if data.top_albums_df %}
+                    <p>💿 Album: <span class="font-medium {{ theme_classes[theme].accent }}">{{ data.top_albums_df[0].Album }}</span></p>
+                    {% endif %}
+                    {% if data.now_playing %}
+                    <p>▶️ Now: <span class="font-medium {{ theme_classes[theme].accent }}">{{ data.now_playing.Track }}</span> by {{ data.now_playing.Artist }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Top Decades -->
+            <h3 class="text-lg font-semibold mb-3 mt-6">Top Decades</h3>
+            {% if data.decades_df %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in">
+                <div id="decades-chart" class="w-full h-64"></div>
+            </div>
+            {% else %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                No decade data available.
+            </div>
+            {% endif %}
+
+            <!-- Listening Activity -->
+            {% if data.heatmap_df %}
+            <h3 class="text-lg font-semibold mb-3 mt-6">Listening Activity</h3>
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in">
+                <div id="heatmap-chart" class="w-full h-64"></div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Tracks -->
+        <div class="tab-content hidden" id="tracks">
+            <h2 class="text-xl font-bold mb-4 animate-scale-in">Tracks</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <!-- Top Tracks -->
+                <div>
+                    <h3 class="text-lg font-semibold mb-3">Top Tracks</h3>
+                    {% if data.top_tracks_df %}
+                    <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="{{ theme_classes[theme].text }} sticky top-0 {{ theme_classes[theme].card }}">
+                                    <th class="py-2 px-3 text-left font-semibold">Track</th>
+                                    <th class="py-2 px-3 text-left font-semibold">Artist</th>
+                                    <th class="py-2 px-3 text-left font-semibold">Playcount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in data.top_tracks_df %}
+                                <tr class="{{ theme_classes[theme].hover }} transition-colors animate-row-reveal">
+                                    <td class="py-2 px-3 truncate max-w-xs">{{ row.Track }}</td>
+                                    <td class="py-2 px-3 truncate max-w-xs">{{ row.Artist }}</td>
+                                    <td class="py-2 px-3">{{ row.Playcount }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in mt-4">
+                        <canvas id="tracks-chart" class="w-full h-64"></canvas>
+                    </div>
+                    {% else %}
+                    <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                        No top tracks data available.
+                    </div>
+                    {% endif %}
+                </div>
+                <!-- Recent Tracks -->
+                <div>
+                    <h3 class="text-lg font-semibold mb-3">Recent Tracks</h3>
+                    {% if data.recent_tracks_df %}
+                    <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="{{ theme_classes[theme].text }} sticky top-0 {{ theme_classes[theme].card }}">
+                                    <th class="py-2 px-3 text-left font-semibold">Track</th>
+                                    <th class="py-2 px-3 text-left font-semibold">Artist</th>
+                                    <th class="py-2 px-3 text-left font-semibold">Album</th>
+                                    <th class="py-2 px-3 text-left font-semibold">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in data.recent_tracks_df %}
+                                <tr class="{{ theme_classes[theme].hover }} transition-colors animate-row-reveal">
+                                    <td class="py-2 px-3 truncate max-w-xs">{{ row.Track }}</td>
+                                    <td class="py-2 px-3 truncate max-w-xs">{{ row.Artist }}</td>
+                                    <td class="py-2 px-3 truncate max-w-xs">{{ row.Album }}</td>
+                                    <td class="py-2 px-3 truncate">{{ row.Date }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in mt-4">
+                        <canvas id="recent-chart" class="w-full h-64"></canvas>
+                    </div>
+                    {% else %}
+                    <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                        No recent tracks data available.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Albums -->
+        <div class="tab-content hidden" id="albums">
+            <h2 class="text-xl font-bold mb-4 animate-scale-in">Albums</h2>
+            <h3 class="text-lg font-semibold mb-3">Top Albums</h3>
+            {% if data.top_albums_df %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="{{ theme_classes[theme].text }} sticky top-0 {{ theme_classes[theme].card }}">
+                            <th class="py-2 px-3 text-left font-semibold">Album</th>
+                            <th class="py-2 px-3 text-left font-semibold">Artist</th>
+                            <th class="py-2 px-3 text-left font-semibold">Playcount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in data.top_albums_df %}
+                        <tr class="{{ theme_classes[theme].hover }} transition-colors animate-row-reveal">
+                            <td class="py-2 px-3 truncate max-w-xs">{{ row.Album }}</td>
+                            <td class="py-2 px-3 truncate max-w-xs">{{ row.Artist }}</td>
+                            <td class="py-2 px-3">{{ row.Playcount }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in mt-4">
+                <canvas id="albums-chart" class="w-full h-64"></canvas>
+            </div>
+            {% else %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                No top albums data available.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Artists -->
+        <div class="tab-content hidden" id="artists">
+            <h2 class="text-xl font-bold mb-4 animate-scale-in">Artists</h2>
+            <h3 class="text-lg font-semibold mb-3">Top Artists</h3>
+            {% if data.top_artists_df %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="{{ theme_classes[theme].text }} sticky top-0 {{ theme_classes[theme].card }}">
+                            <th class="py-2 px-3 text-left font-semibold">Artist</th>
+                            <th class="py-2 px-3 text-left font-semibold">Playcount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in data.top_artists_df %}
+                        <tr class="{{ theme_classes[theme].hover }} transition-colors animate-row-reveal">
+                            <td class="py-2 px-3 truncate max-w-xs">{{ row.Artist }}</td>
+                            <td class="py-2 px-3">{{ row.Playcount }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in mt-4">
+                <canvas id="artists-chart" class="w-full h-64"></canvas>
+            </div>
+            {% else %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                No top artists data available.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Leaderboard -->
+        <div class="tab-content hidden" id="leaderboard">
+            <h2 class="text-xl font-bold mb-4 animate-scale-in">Leaderboard</h2>
+            <!-- Vs. Friends -->
+            <h3 class="text-lg font-semibold mb-3">Vs. Friends</h3>
+            {% if data.friends_df %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="{{ theme_classes[theme].text }} sticky top-0 {{ theme_classes[theme].card }}">
+                            <th class="py-2 px-3 text-left font-semibold">User</th>
+                            <th class="py-2 px-3 text-left font-semibold">Tracks</th>
+                            <th class="py-2 px-3 text-left font-semibold">Albums</th>
+                            <th class="py-2 px-3 text-left font-semibold">Artists</th>
+                            <th class="py-2 px-3 text-left font-semibold">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in data.friends_df %}
+                        <tr class="{{ theme_classes[theme].hover }} transition-colors animate-row-reveal">
+                            <td class="py-2 px-3 truncate max-w-xs">{{ row.User }}</td>
+                            <td class="py-2 px-3">{{ row.Tracks }}</td>
+                            <td class="py-2 px-3">{{ row.Albums }}</td>
+                            <td class="py-2 px-3">{{ row.Artists }}</td>
+                            <td class="py-2 px-3">{{ row.Total }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in mt-4">
+                <div id="friends-chart" class="w-full h-64"></div>
+            </div>
+            {% else %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                No friends data available.
+            </div>
+            {% endif %}
+
+            <!-- Vs. World -->
+            <h3 class="text-lg font-semibold mb-3 mt-6">Vs. World</h3>
+            {% if data.world_df %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in">
+                <div id="world-chart" class="w-full h-64"></div>
+            </div>
+            {% else %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                No global data available.
+            </div>
+            {% endif %}
+
+            <!-- Vs. Your Past -->
+            <h3 class="text-lg font-semibold mb-3 mt-6">Vs. Your Past</h3>
+            {% if data.past_df %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="{{ theme_classes[theme].text }} sticky top-0 {{ theme_classes[theme].card }}">
+                            <th class="py-2 px-3 text-left font-semibold">Period</th>
+                            <th class="py-2 px-3 text-left font-semibold">Tracks</th>
+                            <th class="py-2 px-3 text-left font-semibold">Albums</th>
+                            <th class="py-2 px-3 text-left font-semibold">Artists</th>
+                            <th class="py-2 px-3 text-left font-semibold">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in data.past_df %}
+                        <tr class="{{ theme_classes[theme].hover }} transition-colors animate-row-reveal">
+                            <td class="py-2 px-3 truncate max-w-xs">{{ row.Period }}</td>
+                            <td class="py-2 px-3">{{ row.Tracks }}</td>
+                            <td class="py-2 px-3">{{ row.Albums }}</td>
+                            <td class="py-2 px-3">{{ row.Artists }}</td>
+                            <td class="py-2 px-3">{{ row.Total }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} shadow-md animate-scale-in mt-4">
+                <div id="past-chart" class="w-full h-64"></div>
+            </div>
+            {% else %}
+            <div class="p-4 rounded-lg {{ theme_classes[theme].card }} border-l-4 border-red-500 shadow-md animate-scale-in">
+                No past data available.
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Footer -->
+    <footer class="text-center py-4 text-xs {{ theme_classes[theme].text }} opacity-70 animate-scale-in">
+        Built with Last.fm API
+    </footer>
+
+    <!-- Theme Classes and Chart Data for JavaScript -->
+    <script>
+        const themeClasses = {{ theme_classes | tojson }};
+        const chartData = {{ data.chart_data | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+</body>
+</html>

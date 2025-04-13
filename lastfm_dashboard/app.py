@@ -6,19 +6,20 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
 import json
+import io
+import zipfile
+import os
+import openpyxl
+from xml.etree import ElementTree as ET
 
 # Last.fm API configuration
-API_KEY = "5fa9b4f47365a06fc995f1c83fb0d621"  # Replace with your Last.fm API key
+API_KEY = "YOUR_LASTFM_API_KEY"  # Replace with your Last.fm API key
 BASE_URL = "http://ws.audioscrobbler.com/2.0/"
 
-# Custom CSS with reduced navbar-content gap
+# Custom CSS for minimal, elegant, stylish UI
 custom_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@300;400;700&display=swap');
-
-div[data-testid="stToolbar"] {
-    display: none;
-}
 
 * {
     font-family: 'Bricolage Grotesque', sans-serif !important;
@@ -32,11 +33,13 @@ div[data-testid="stToolbar"] {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
 @keyframes gradientShift {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
 }
+
 @keyframes bounce {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-3px); }
@@ -47,59 +50,60 @@ div[data-testid="stToolbar"] {
     --bg: #F5F7FA;
     --text: #2D3748;
     --accent: #4A5568;
-    --card-bg: rgba(255, 255, 255, 0.9);
+    --card-bg: rgba(255, 255, 255, 0.8);
     --hover: #E2E8F0;
 }
 .theme-dark {
     --bg: #1A202C;
     --text: #E2E8F0;
     --accent: #A0AEC0;
-    --card-bg: rgba(45, 55, 72, 0.9);
+    --card-bg: rgba(45, 55, 72, 0.8);
     --hover: #4A5568;
 }
 .theme-black {
     --bg: #000000;
     --text: #FFFFFF;
     --accent: #CBD5E0;
-    --card-bg: rgba(26, 32, 44, 0.9);
+    --card-bg: rgba(26, 32, 44, 0.8);
     --hover: #2D3748;
 }
 .theme-blue {
     --bg: #0E1B3D;
     --text: #E6F3FF;
     --accent: #90CDF4;
-    --card-bg: rgba(44, 82, 130, 0.9);
+    --card-bg: rgba(44, 82, 130, 0.8);
     --hover: #2B6CB0;
 }
 .theme-orange {
     --bg: #3C1A00;
     --text: #FFE8D6;
     --accent: #F6AD55;
-    --card-bg: rgba(124, 45, 18, 0.9);
+    --card-bg: rgba(124, 45, 18, 0.8);
     --hover: #DD6B20;
 }
 .theme-graffiti {
-    --bg: linear-gradient(135deg, #FF0066, #00FFCC, #FFCC00, #FF0066) !important;
+    --bg: linear-gradient(135deg, #FF0066, #00FFCC, #FFCC00, #FF0066);
     --text: #000000;
     --accent: #FFFFFF;
-    --card-bg: rgba(255, 255, 255, 0.85);
-    --hover: rgba(0, 0, 0, 0.2);
+    --card-bg: rgba(255, 255, 255, 0.7);
+    --hover: rgba(0, 0, 0, 0.1);
     background-size: 200% 200%;
     animation: gradientShift 8s ease infinite;
 }
 
 /* Global Styles */
 [data-testid="stAppViewContainer"] {
-    background: var(--bg) !important;
-    color: var(--text) !important;
+    background: var(--bg);
+    color: var(--text);
     transition: all 0.3s ease;
     animation: fadeIn 0.5s ease-out;
 }
+
 .stMarkdown, .stDataFrame, h1, h2, h3, p, div {
     color: var(--text) !important;
 }
 
-/* Navbar */
+/* Top Navbar */
 .navbar {
     position: fixed;
     top: 0;
@@ -107,58 +111,59 @@ div[data-testid="stToolbar"] {
     right: 0;
     background: var(--card-bg);
     backdrop-filter: blur(10px);
-    padding: 4px 8px;
-    display: inline-flex;
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
     align-items: center;
     z-index: 1000;
     border-bottom: 1px solid var(--hover);
-    width: 100%;
-    height: 32px;
-    overflow-x: auto;
-    white-space: nowrap;
 }
-.navbar-controls {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
+
+.navbar-title {
+    font-size: 1.2rem;
+    font-weight: 700;
 }
-.navbar-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    flex: 0 0 auto;
+
+.navbar-user {
+    font-size: 0.9rem;
+    opacity: 0.8;
 }
-.navbar-item svg {
-    stroke: var(--accent);
-    width: 10px;
-    height: 10px;
+
+.navbar-theme {
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    transition: background 0.2s;
 }
-.navbar-item input, .navbar-item select {
+.navbar-theme:hover {
     background: var(--hover);
-    border: none;
-    border-radius: 2px;
-    padding: 2px 4px;
-    color: var(--text);
-    font-size: 0.7rem;
-    max-width: 80px;
-    min-width: 50px;
 }
-.navbar-item input:focus, .navbar-item select:focus {
-    outline: none;
-    box-shadow: 0 0 2px var(--accent);
+
+/* Sidebar */
+.stSidebar {
+    background: var(--card-bg);
+    backdrop-filter: blur(10px);
+    width: 220px !important;
+    padding: 16px;
+    border-right: 1px solid var(--hover);
+    transition: width 0.3s ease;
 }
-/* Ensure columns stay inline */
-div[data-testid="stHorizontalBlock"] {
-    display: inline-flex !important;
-    gap: 4px;
+
+.sidebar-item {
+    display: flex;
     align-items: center;
+    padding: 10px;
+    margin: 4px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
 }
-div[data-testid="column"] {
-    display: inline-flex;
-    align-items: center;
-    flex: 0 0 auto;
-    min-width: 0;
+.sidebar-item:hover {
+    background: var(--hover);
+    transform: translateX(4px);
+}
+.sidebar-item svg {
+    margin-right: 8px;
 }
 
 /* Cards */
@@ -168,13 +173,13 @@ div[data-testid="column"] {
     border-radius: 12px;
     padding: 16px;
     margin: 12px 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     transition: transform 0.2s, box-shadow 0.2s;
     animation: fadeIn 0.6s ease-out;
 }
 .quick-facts-card:hover, .error-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 .error-card {
     border-left: 4px solid #FF4D4D;
@@ -186,7 +191,6 @@ div[data-testid="column"] {
     border: none;
     padding: 10px 16px;
     font-size: 1rem;
-    font-weight: 700;
     color: var(--text);
     position: relative;
     transition: color 0.2s;
@@ -200,7 +204,7 @@ div[data-testid="column"] {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 3px;
+    height: 2px;
     background: var(--accent);
 }
 
@@ -212,8 +216,9 @@ div[data-testid="column"] {
     transition: box-shadow 0.2s;
 }
 [data-testid="stPlotlyChart"]:hover, [data-testid="stDataFrame"]:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
+
 .stDataFrame tr:nth-child(even) {
     background: rgba(0, 0, 0, 0.05);
 }
@@ -222,19 +227,14 @@ div[data-testid="column"] {
 }
 
 /* Graffiti Theme */
-.theme-graffiti h2 {
+.theme-graffiti h2, .theme-graffiti .navbar-title {
     animation: bounce 2s infinite;
-}
-
-/* Content Padding for Fixed Navbar */
-.content {
-    padding-top: 36px; /* Reduced from 44px */
 }
 </style>
 """
 
 # Function to apply theme
-def apply_theme(theme):
+def apply_theme(theme, custom_accent, card_opacity, font_size, animation_speed):
     st.markdown(f"""
         <style>
             [data-testid="stAppViewContainer"] {{ 
@@ -243,9 +243,10 @@ def apply_theme(theme):
                             '#000000' if theme == 'black' else 
                             '#0E1B3D' if theme == 'blue' else 
                             '#3C1A00' if theme == 'orange' else 
-                            'linear-gradient(135deg, #FF0066, #00FFCC, #FFCC00, #FF0066)'} !important;
+                            'linear-gradient(135deg, #FF0066, #00FFCC, #FFCC00, #FF0066)'};
                 background-size: {'200% 200%' if theme == 'graffiti' else 'auto'};
                 animation: {'gradientShift 8s ease infinite' if theme == 'graffiti' else 'none'};
+                font-size: {font_size}px;
             }}
             .stMarkdown, .stDataFrame, h1, h2, h3, p, div {{ 
                 color: {'#2D3748' if theme == 'light' else 
@@ -256,21 +257,22 @@ def apply_theme(theme):
                         '#000000'} !important; 
             }}
             .quick-facts-card, .error-card {{
-                background: {'rgba(255, 255, 255, 0.9)' if theme == 'light' or theme == 'graffiti' else 
-                            'rgba(45, 55, 72, 0.9)' if theme == 'dark' else 
-                            'rgba(26, 32, 44, 0.9)' if theme == 'black' else 
-                            'rgba(44, 82, 130, 0.9)' if theme == 'blue' else 
-                            'rgba(124, 45, 18, 0.9)'};
+                background: {'rgba(255, 255, 255, ' + str(card_opacity) + ')' if theme == 'light' or theme == 'graffiti' else 
+                            'rgba(45, 55, 72, ' + str(card_opacity) + ')' if theme == 'dark' else 
+                            'rgba(26, 32, 44, ' + str(card_opacity) + ')' if theme == 'black' else 
+                            'rgba(44, 82, 130, ' + str(card_opacity) + ')' if theme == 'blue' else 
+                            'rgba(124, 45, 18, ' + str(card_opacity) + ')'};
+                transition-duration: {animation_speed}s;
             }}
-            .navbar {{
-                background: {'rgba(255, 255, 255, 0.9)' if theme == 'light' else 
-                            'rgba(45, 55, 72, 0.9)' if theme == 'dark' else 
-                            'rgba(26, 32, 44, 0.9)' if theme == 'black' else 
-                            'rgba(44, 82, 130, 0.9)' if theme == 'blue' else 
-                            'rgba(124, 45, 18, 0.9)' if theme == 'orange' else 
-                            'rgba(255, 255, 255, 0.85)'};
+            .navbar, .stSidebar {{
+                background: {'rgba(255, 255, 255, ' + str(card_opacity) + ')' if theme == 'light' else 
+                            'rgba(45, 55, 72, ' + str(card_opacity) + ')' if theme == 'dark' else 
+                            'rgba(26, 32, 44, ' + str(card_opacity) + ')' if theme == 'black' else 
+                            'rgba(44, 82, 130, ' + str(card_opacity) + ')' if theme == 'blue' else 
+                            'rgba(124, 45, 18, ' + str(card_opacity) + ')' if theme == 'orange' else 
+                            'rgba(255, 255, 255, ' + str(card_opacity * 0.7) + ')'};
             }}
-            .theme-{theme} {{ --accent: {'#4A5568' if theme == 'light' else '#A0AEC0' if theme == 'dark' else '#CBD5E0' if theme == 'black' else '#90CDF4' if theme == 'blue' else '#F6AD55' if theme == 'orange' else '#FFFFFF'}; }}
+            .theme-{theme} {{ --accent: {custom_accent if custom_accent else {'#4A5568' if theme == 'light' else '#A0AEC0' if theme == 'dark' else '#CBD5E0' if theme == 'black' else '#90CDF4' if theme == 'blue' else '#F6AD55' if theme == 'orange' else '#FFFFFF'}}; }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -468,166 +470,209 @@ def get_top_decades(username, limit=10):
         return df.groupby("Decade")["Playcount"].sum().reset_index()
     return pd.DataFrame()
 
-def get_leaderboard_data(username):
-    user_tracks = get_top_tracks(username, limit=50)
-    user_albums = get_top_albums(username, limit=50)
-    user_artists = get_top_artists(username, limit=50)
-    
-    if user_tracks.empty and user_albums.empty and user_artists.empty:
-        return None, None, None
-    
-    user_scrobbles = {
-        "tracks": user_tracks["Playcount"].sum() if not user_tracks.empty else 0,
-        "albums": user_albums["Playcount"].sum() if not user_albums.empty else 0,
-        "artists": user_artists["Playcount"].sum() if not user_artists.empty else 0
-    }
-    total_user_scrobbles = sum(user_scrobbles.values())
+# Function to export data
+def export_data(datasets, format_type, username):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if format_type == "csv":
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, df in datasets.items():
+                if not df.empty:
+                    csv_buffer = io.StringIO()
+                    df.to_csv(csv_buffer, index=False)
+                    zf.writestr(f"{username}_{name}.csv", csv_buffer.getvalue())
+        buffer.seek(0)
+        return buffer, f"{username}_data_{timestamp}.zip"
 
-    friends_data = pd.DataFrame({
-        "User": ["Friend1", "Friend2", "Friend3", username],
-        "Tracks": [int(user_scrobbles["tracks"] * 0.8), int(user_scrobbles["tracks"] * 0.6), 
-                   int(user_scrobbles["tracks"] * 1.2), user_scrobbles["tracks"]],
-        "Albums": [int(user_scrobbles["albums"] * 0.9), int(user_scrobbles["albums"] * 0.7), 
-                   int(user_scrobbles["albums"] * 1.1), user_scrobbles["albums"]],
-        "Artists": [int(user_scrobbles["artists"] * 0.85), int(user_scrobbles["artists"] * 0.65), 
-                    int(user_scrobbles["artists"] * 1.15), user_scrobbles["artists"]],
-        "Total": [0, 0, 0, total_user_scrobbles]
-    })
-    friends_data["Total"] = friends_data[["Tracks", "Albums", "Artists"]].sum(axis=1)
+    elif format_type == "json":
+        export_data = {name: df.to_dict(orient="records") for name, df in datasets.items() if not df.empty}
+        buffer = io.BytesIO()
+        buffer.write(json.dumps(export_data, indent=2).encode("utf-8"))
+        buffer.seek(0)
+        return buffer, f"{username}_data_{timestamp}.json"
 
-    world_data = pd.DataFrame({
-        "Entity": user_artists["Artist"].tolist()[:5] + ["Global Average"],
-        "Tracks": [user_scrobbles["tracks"]] * 5 + [user_scrobbles["tracks"] * 2],
-        "Albums": [user_scrobbles["albums"]] * 5 + [user_scrobbles["albums"] * 1.8],
-        "Artists": [user_scrobbles["artists"]] * 5 + [user_scrobbles["artists"] * 2.2],
-        "Total": [total_user_scrobbles] * 5 + [total_user_scrobbles * 2]
-    })
+    elif format_type == "excel":
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            for name, df in datasets.items():
+                if not df.empty:
+                    df.to_excel(writer, sheet_name=name, index=False)
+        buffer.seek(0)
+        return buffer, f"{username}_data_{timestamp}.xlsx"
 
-    now = datetime.utcnow()
-    current_week_start = now - timedelta(days=now.weekday(), hours=now.hour, minutes=now.minute, seconds=now.second)
-    last_month_start = current_week_start - timedelta(days=30)
-    last_month_end = current_week_start - timedelta(seconds=1)
+    elif format_type == "pbix":
+        temp_dir = f"temp_{username}_{timestamp}"
+        os.makedirs(temp_dir, exist_ok=True)
+        csv_files = []
+        for name, df in datasets.items():
+            if not df.empty:
+                csv_path = os.path.join(temp_dir, f"{name}.csv")
+                df.to_csv(csv_path, index=False)
+                csv_files.append(csv_path)
+        
+        readme = (
+            "To use in Power BI:\n"
+            "1. Open Power BI Desktop.\n"
+            "2. Click 'Get Data' > 'Text/CSV'.\n"
+            "3. Import each CSV file from this folder.\n"
+            "4. Create your visualizations."
+        )
+        readme_path = os.path.join(temp_dir, "README.txt")
+        with open(readme_path, "w") as f:
+            f.write(readme)
+        
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for csv_file in csv_files:
+                zf.write(csv_file, os.path.basename(csv_file))
+            zf.write(readme_path, "README.txt")
+        
+        for file in csv_files + [readme_path]:
+            os.remove(file)
+        os.rmdir(temp_dir)
+        
+        buffer.seek(0)
+        return buffer, f"{username}_data_for_pbix_{timestamp}.zip"
 
-    current_data = fetch_lastfm_data("user.getRecentTracks", username, limit=200, 
-                                    from_ts=int(current_week_start.timestamp()), 
-                                    to_ts=int(now.timestamp()))
-    past_data = fetch_lastfm_data("user.getRecentTracks", username, limit=200, 
-                                 from_ts=int(last_month_start.timestamp()), 
-                                 to_ts=int(last_month_end.timestamp()))
-
-    past_df = []
-    if current_data and "recenttracks" in current_data:
-        tracks = current_data["recenttracks"]["track"]
-        artists = len(set(t["artist"]["#text"] for t in tracks if "artist" in t))
-        albums = len(set(t.get("album", {}).get("#text", "Unknown") for t in tracks if t.get("album")))
-        track_count = len(tracks)
-        past_df.append({
-            "Period": "This Week",
-            "Tracks": track_count,
-            "Albums": albums,
-            "Artists": artists,
-            "Total": track_count
-        })
-    else:
-        past_df.append({"Period": "This Week", "Tracks": 0, "Albums": 0, "Artists": 0, "Total": 0})
-    
-    if past_data and "recenttracks" in past_data:
-        tracks = past_data["recenttracks"]["track"]
-        artists = len(set(t["artist"]["#text"] for t in tracks if "artist" in t))
-        albums = len(set(t.get("album", {}).get("#text", "Unknown") for t in tracks if t.get("album")))
-        track_count = len(tracks)
-        past_df.append({
-            "Period": "Last Month",
-            "Tracks": track_count,
-            "Albums": albums,
-            "Artists": artists,
-            "Total": track_count
-        })
-    else:
-        past_df.append({"Period": "Last Month", "Tracks": 0, "Albums": 0, "Artists": 0, "Total": 0})
-
-    return friends_data, world_data, pd.DataFrame(past_df)
+    elif format_type == "twb":
+        temp_dir = f"temp_{username}_{timestamp}"
+        os.makedirs(temp_dir, exist_ok=True)
+        csv_files = []
+        for name, df in datasets.items():
+            if not df.empty:
+                csv_path = os.path.join(temp_dir, f"{name}.csv")
+                df.to_csv(csv_path, index=False)
+                csv_files.append(csv_path)
+        
+        twb_content = ET.Element("workbook", xmlns="http://www.tableausoftware.com/xml/workbook", version="2021.4")
+        datasources = ET.SubElement(twb_content, "datasources")
+        for csv_file in csv_files:
+            datasource = ET.SubElement(datasources, "datasource", name=os.path.basename(csv_file).replace(".csv", ""))
+            connection = ET.SubElement(datasource, "connection", attrib={"class": "csv"})  # Fixed syntax
+            ET.SubElement(connection, "named-connections")
+            relation = ET.SubElement(connection, "relation", name=os.path.basename(csv_file), type="table")
+            metadata = ET.SubElement(datasource, "metadata")
+            for col in datasets[os.path.basename(csv_file).replace(".csv", "")].columns:
+                ET.SubElement(metadata, "column", name=col, datatype="string")
+        
+        twb_buffer = io.BytesIO()
+        ET.ElementTree(twb_content).write(twb_buffer, encoding="utf-8", xml_declaration=True)
+        twb_buffer.seek(0)
+        
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for csv_file in csv_files:
+                zf.write(csv_file, os.path.basename(csv_file))
+            zf.writestr(f"{username}_data.twb", twb_buffer.getvalue())
+        
+        for csv_file in csv_files:
+            os.remove(csv_file)
+        os.rmdir(temp_dir)
+        
+        buffer.seek(0)
+        return buffer, f"{username}_data_for_tableau_{timestamp}.zip"
 
 # Streamlit app
 st.set_page_config(page_title="Last.fm Dashboard", layout="wide")
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# Session state
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "period" not in st.session_state:
-    st.session_state.period = "overall"
-if "theme" not in st.session_state:
-    st.session_state.theme = "light"
+# Session state for sidebar and export
+if "sidebar_open" not in st.session_state:
+    st.session_state.sidebar_open = True
+if "export_clicked" not in st.session_state:
+    st.session_state.export_clicked = False
 
-# Navbar with columns for username, period, theme
-st.markdown("<div class='navbar'>", unsafe_allow_html=True)
-st.markdown("<div class='navbar-controls'>", unsafe_allow_html=True)
-
-# Use columns for layout
-col1, col2, col3 = st.columns([1, 1, 1])
-
-with col1:
+# Sidebar
+with st.sidebar:
     st.markdown("""
-        <div class='navbar-item'>
-            <svg width='10' height='10' viewBox='0 0 24 24' fill='none' title='Username'>
-                <path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/>
-            </svg>
+        <div class='sidebar-item' onclick='toggleSidebar()'>
+            <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='var(--text)'><path d='M3 6h18M3 12h18M3 18h18'/></svg>
+            <span>Menu</span>
         </div>
     """, unsafe_allow_html=True)
-    username = st.text_input("Username", value=st.session_state.username, placeholder="Username", label_visibility="collapsed", key="nav_username")
-    if username != st.session_state.username:
-        st.session_state.username = username
+    
+    if st.session_state.sidebar_open:
+        st.markdown("<div class='sidebar-item'>", unsafe_allow_html=True)
+        username = st.text_input("Username", "", placeholder="Enter Last.fm username")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='sidebar-item'>", unsafe_allow_html=True)
+        period = st.selectbox("Time Range", ["overall", "7day", "1month", "3month", "6month", "12month"], index=0)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='sidebar-item'>", unsafe_allow_html=True)
+        theme = st.selectbox("Theme", ["light", "dark", "black", "blue", "orange", "graffiti"], index=0)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        with st.expander("Customize"):
+            font_size = st.slider("Font Size (px)", 12, 20, 16)
+            card_opacity = st.slider("Card Opacity", 0.3, 1.0, 0.8, 0.1)
+            animation_speed = st.slider("Animation Speed (s)", 0.1, 1.0, 0.3, 0.1)
+            custom_accent = st.text_input("Custom Accent Color (Hex)", "", placeholder="#4A5568")
+        
+        if username and check_user_exists(username):
+            with st.expander("Export Data"):
+                export_format = st.selectbox("Format", ["csv", "json", "excel", "pbix", "twb"])
+                if st.button("Export"):
+                    st.session_state.export_clicked = True
 
-with col2:
-    st.markdown("""
-        <div class='navbar-item'>
-            <svg width='10' height='10' viewBox='0 0 24 24' fill='none' title='Time Range'>
-                <path d='M12 2a10 10 0 100 20 10 10 0 000-20zm0 2c4.41 0 8 3.59 8 8s-3.59 8-8 8-8-3.59-8-8 3.59-8 8-8zm-.5 3v5h1V7h-1zm0 6h1v1h-1v-1z'/>
-            </svg>
+# Top Navbar
+st.markdown(f"""
+    <div class='navbar'>
+        <div class='navbar-title'>Last.fm Dashboard</div>
+        <div class='navbar-user'>{username if username else 'No user'}</div>
+        <div class='navbar-theme' onclick='toggleTheme()'>
+            <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='var(--text)'><path d='M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z'/></svg>
         </div>
-    """, unsafe_allow_html=True)
-    period = st.selectbox("Time Range", ["overall", "7day", "1month", "3month", "6month", "12month"], index=["overall", "7day", "1month", "3month", "6month", "12month"].index(st.session_state.period), label_visibility="collapsed", key="nav_period")
-    if period != st.session_state.period:
-        st.session_state.period = period
+    </div>
+""", unsafe_allow_html=True)
 
-with col3:
-    st.markdown("""
-        <div class='navbar-item'>
-            <svg width='10' height='10' viewBox='0 0 24 24' fill='none' title='Theme'>
-                <path d='M12 4a8 8 0 100 16 8 8 0 000-16zm0 2a6 6 0 110 12 6 6 0 010-12zm-1 2h2v6h-2V8zm0 7h2v2h-2v-2z'/>
-            </svg>
-        </div>
-    """, unsafe_allow_html=True)
-    theme = st.selectbox("Theme", ["light", "dark", "black", "blue", "orange", "graffiti"], index=["light", "dark", "black", "blue", "orange", "graffiti"].index(st.session_state.theme), label_visibility="collapsed", key="nav_theme")
-    if theme != st.session_state.theme:
-        st.session_state.theme = theme
-
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-# Apply theme
-apply_theme(st.session_state.theme)
+# Tabs
+tab1, tab2, tab3, tab4 = st.tabs(["Home", "Tracks", "Albums", "Artists"])
 
 # Main content
-st.markdown("<div class='content'>", unsafe_allow_html=True)
-
-if not st.session_state.username:
-    st.markdown("<div class='error-card'>Please enter a Last.fm username in the navbar.</div>", unsafe_allow_html=True)
+if not username:
+    with tab1:
+        st.markdown("<div class='error-card'>Please enter a Last.fm username in the sidebar.</div>", unsafe_allow_html=True)
 else:
-    if not check_user_exists(st.session_state.username):
-        st.markdown("<div class='error-card'>No user exists with that username.</div>", unsafe_allow_html=True)
+    if not check_user_exists(username):
+        with tab1:
+            st.markdown("<div class='error-card'>No user exists with that username.</div>", unsafe_allow_html=True)
     else:
         with st.spinner("Fetching data..."):
             # Fetch data
-            top_artists_df = get_top_artists(st.session_state.username, limit=10, period=st.session_state.period)
-            top_tracks_df = get_top_tracks(st.session_state.username, limit=10, period=st.session_state.period)
-            top_albums_df = get_top_albums(st.session_state.username, limit=10, period=st.session_state.period)
-            recent_tracks_df = get_recent_tracks(st.session_state.username, limit=10)
-            heatmap_df = get_listening_heatmap(st.session_state.username)
-            weekly_comparison = get_weekly_comparison(st.session_state.username)
-            decades_df = get_top_decades(st.session_state.username)
-            friends_df, world_df, past_df = get_leaderboard_data(st.session_state.username)
+            top_artists_df = get_top_artists(username, limit=10, period=period)
+            top_tracks_df = get_top_tracks(username, limit=10, period=period)
+            top_albums_df = get_top_albums(username, limit=10, period=period)
+            recent_tracks_df = get_recent_tracks(username, limit=10)
+            heatmap_df = get_listening_heatmap(username)
+            weekly_comparison = get_weekly_comparison(username)
+            decades_df = get_top_decades(username)
+
+            # Prepare datasets for export
+            datasets = {
+                "top_artists": top_artists_df,
+                "top_tracks": top_tracks_df,
+                "top_albums": top_albums_df,
+                "recent_tracks": recent_tracks_df,
+                "heatmap": heatmap_df,
+                "decades": decades_df,
+                "weekly_comparison": pd.DataFrame([
+                    {"Period": weekly_comparison["current_period"], **weekly_comparison["current"]},
+                    {"Period": weekly_comparison["previous_period"], **weekly_comparison["previous"]}
+                ])
+            }
+
+            # Handle export
+            if st.session_state.export_clicked:
+                buffer, filename = export_data(datasets, export_format, username)
+                st.download_button(
+                    label="Download File",
+                    data=buffer,
+                    file_name=filename,
+                    mime="application/zip" if filename.endswith(".zip") else "application/octet-stream"
+                )
+                st.session_state.export_clicked = False
 
             # Theme-specific chart colors
             theme_colors = {
@@ -636,16 +681,13 @@ else:
                 "black": "Inferno",
                 "blue": "Cividis",
                 "orange": "Oranges",
-                "graffiti": "viridis"  # Changed from ["#FF0066", "#00FFCC", "#FFCC00"] to valid colorscale
+                "graffiti": "Plotly"
             }
-
-            # Tabs
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "Tracks", "Albums", "Artists", "Leaderboard"])
 
             # Tab 1: Home
             with tab1:
                 st.markdown("<h2>Welcome</h2>", unsafe_allow_html=True)
-                st.markdown(f"Exploring <b>{st.session_state.username}</b>'s music taste", unsafe_allow_html=True)
+                st.markdown(f"Exploring <b>{username}</b>'s music taste", unsafe_allow_html=True)
 
                 # Quick Facts
                 st.markdown("<h3>Quick Facts</h3>", unsafe_allow_html=True)
@@ -655,17 +697,56 @@ else:
                 with col1:
                     st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
                     st.write(f"**This Week ({weekly_comparison['current_period']})**")
-                    st.write(f"🎧 Listening Time: {current['listening_time']} hours")
-                    st.write(f"📊 Avg. Scrobbles/Day: {current['avg_scrobbles']}")
-                    st.write(f"📅 Most Active: {current['most_active_day']['day']} ({current['most_active_day']['scrobbles']})")
+                    st.write(f"- Listening Time: {current['listening_time']} hours")
+                    st.write(f"- Avg. Scrobbles/Day: {current['avg_scrobbles']}")
+                    st.write(f"- Most Active Day: {current['most_active_day']['day']} ({current['most_active_day']['scrobbles']} scrobbles)")
                     st.markdown("</div>", unsafe_allow_html=True)
                 with col2:
                     st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
                     st.write(f"**Last Week ({weekly_comparison['previous_period']})**")
-                    st.write(f"🎧 Listening Time: {previous['listening_time']} hours")
-                    st.write(f"📊 Avg. Scrobbles/Day: {previous['avg_scrobbles']}")
-                    st.write(f"📅 Most Active: {previous['most_active_day']['day']} ({previous['most_active_day']['scrobbles']})")
+                    st.write(f"- Listening Time: {previous['listening_time']} hours")
+                    st.write(f"- Avg. Scrobbles/Day: {previous['avg_scrobbles']}")
+                    st.write(f"- Most Active Day: {previous['most_active_day']['day']} ({previous['most_active_day']['scrobbles']} scrobbles)")
                     st.markdown("</div>", unsafe_allow_html=True)
+
+                # Weekly Insights
+                st.markdown("<h3>Weekly Insights</h3>", unsafe_allow_html=True)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
+                    st.write(f"**This Week ({weekly_comparison['current_period']})**")
+                    st.write(f"- Unique Artists: {current['artists']}")
+                    st.write(f"- Unique Tracks: {current['tracks']}")
+                    st.write(f"- Total Scrobbles: {current['scrobbles']}")
+                    st.markdown("</div>", unsafe_allow_html=True)
+                with col2:
+                    st.markdown("<div class='quick-facts-card'>", unsafe_allow_html=True)
+                    st.write(f"**Last Week ({weekly_comparison['previous_period']})**")
+                    st.write(f"- Unique Artists: {previous['artists']}")
+                    st.write(f"- Unique Tracks: {previous['tracks']}")
+                    st.write(f"- Total Scrobbles: {previous['scrobbles']}")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                # Top Decades
+                st.markdown("<h3>Top Decades</h3>", unsafe_allow_html=True)
+                if not decades_df.empty:
+                    st.dataframe(decades_df, use_container_width=True)
+                    fig_decades = px.bar(
+                        decades_df,
+                        x="Decade",
+                        y="Playcount",
+                        title="",
+                        color="Playcount",
+                        color_continuous_scale=theme_colors[theme]
+                    )
+                    fig_decades.update_layout(
+                        margin=dict(l=20, r=20, t=20, b=20),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)"
+                    )
+                    st.plotly_chart(fig_decades, use_container_width=True)
+                else:
+                    st.markdown("<div class='error-card'>No decade data available (release years may be missing).</div>", unsafe_allow_html=True)
 
                 # Quick Insights
                 st.markdown("<h3>Quick Insights</h3>", unsafe_allow_html=True)
@@ -686,52 +767,24 @@ else:
                             st.write(f"▶️ Now Playing: **{now_playing['Track']}** by **{now_playing['Artist']}**")
                         st.markdown("</div>", unsafe_allow_html=True)
 
-                # Top Decades
-                st.markdown("<h3>Top Decades</h3>", unsafe_allow_html=True)
-                if not decades_df.empty:
-                    fig_sunburst = px.sunburst(
-                        decades_df,
-                        path=["Decade"],
-                        values="Playcount",
-                        title="",
-                        color="Playcount",
-                        color_continuous_scale=theme_colors[st.session_state.theme]
-                    )
-                    fig_sunburst.update_layout(
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_sunburst, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No decade data available (release years may be missing).</div>", unsafe_allow_html=True)
-
-                # Listening Activity
+                # Listening Activity Heatmap
                 if not heatmap_df.empty:
                     st.markdown("<h3>Listening Activity</h3>", unsafe_allow_html=True)
-                    fig_3d = go.Figure(data=[go.Scatter3d(
-                        x=heatmap_df["Hour"],
-                        y=heatmap_df["Day"],
-                        z=heatmap_df["Plays"],
-                        mode="markers",
-                        marker=dict(
-                            size=8,
-                            color=heatmap_df["Plays"],
-                            colorscale=theme_colors[st.session_state.theme],
-                            opacity=0.8
-                        )
-                    )])
-                    fig_3d.update_layout(
-                        scene=dict(
-                            xaxis_title="Hour",
-                            yaxis_title="Day",
-                            zaxis_title="Plays"
-                        ),
+                    fig_heatmap = px.density_heatmap(
+                        heatmap_df,
+                        x="Hour",
+                        y="Day",
+                        z="Plays",
+                        title="",
+                        category_orders={"Day": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+                        color_continuous_scale=theme_colors[theme]
+                    )
+                    fig_heatmap.update_layout(
                         margin=dict(l=20, r=20, t=20, b=20),
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)"
                     )
-                    st.plotly_chart(fig_3d, use_container_width=True)
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
 
             # Tab 2: Tracks
             with tab2:
@@ -747,7 +800,7 @@ else:
                             y="Playcount",
                             title="",
                             color="Playcount",
-                            color_continuous_scale=theme_colors[st.session_state.theme],
+                            color_continuous_scale=theme_colors[theme],
                             hover_data=["Artist"]
                         )
                         fig_tracks.update_layout(
@@ -770,7 +823,7 @@ else:
                                 values=artist_counts["Count"],
                                 hole=0.4,
                                 textinfo="label+percent",
-                                marker=dict(colors=theme_colors[st.session_state.theme] if st.session_state.theme == "graffiti" else px.colors.qualitative.Plotly)
+                                marker=dict(colors=px.colors.qualitative.Plotly)
                             )
                         ])
                         fig_doughnut.update_layout(
@@ -796,7 +849,7 @@ else:
                         y="Playcount",
                         title="",
                         color="Playcount",
-                        color_continuous_scale=theme_colors[st.session_state.theme],
+                        color_continuous_scale=theme_colors[theme],
                         hover_data=["Artist"]
                     )
                     fig_albums.update_layout(
@@ -820,7 +873,7 @@ else:
                         y="Playcount",
                         title="",
                         color="Playcount",
-                        color_continuous_scale=theme_colors[st.session_state.theme]
+                        color_continuous_scale=theme_colors[theme]
                     )
                     fig_artists.update_layout(
                         margin=dict(l=20, r=20, t=20, b=20),
@@ -830,89 +883,6 @@ else:
                     st.plotly_chart(fig_artists, use_container_width=True)
                 else:
                     st.markdown("<div class='error-card'>No top artists data available.</div>", unsafe_allow_html=True)
-
-            # Tab 5: Leaderboard
-            with tab5:
-                st.markdown("<h2>Leaderboard</h2>", unsafe_allow_html=True)
-
-                # Friends Comparison
-                st.markdown("<h3>Vs. Friends</h3>", unsafe_allow_html=True)
-                if friends_df is not None and not friends_df.empty:
-                    st.dataframe(friends_df[["User", "Tracks", "Albums", "Artists", "Total"]], use_container_width=True)
-                    fig_friends = go.Figure(data=[
-                        go.Bar(name="Tracks", x=friends_df["User"], y=friends_df["Tracks"]),
-                        go.Bar(name="Albums", x=friends_df["User"], y=friends_df["Albums"]),
-                        go.Bar(name="Artists", x=friends_df["User"], y=friends_df["Artists"])
-                    ])
-                    fig_friends.update_layout(
-                        barmode="group",
-                        title="",
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_friends, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No friends data available.</div>", unsafe_allow_html=True)
-
-                # World Comparison
-                st.markdown("<h3>Vs. World</h3>", unsafe_allow_html=True)
-                if world_df is not None and not world_df.empty:
-                    fig_world = px.treemap(
-                        world_df,
-                        path=["Entity"],
-                        values="Total",
-                        title="",
-                        color="Total",
-                        color_continuous_scale=theme_colors[st.session_state.theme]
-                    )
-                    fig_world.update_layout(
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_world, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No global data available.</div>", unsafe_allow_html=True)
-
-                # Past Comparison
-                st.markdown("<h3>Vs. Your Past</h3>", unsafe_allow_html=True)
-                if past_df is not None and not past_df.empty:
-                    st.dataframe(past_df, use_container_width=True)
-                    fig_past = go.Figure(data=[
-                        go.Scatter(
-                            x=past_df["Period"],
-                            y=past_df["Tracks"],
-                            mode="lines+markers",
-                            name="Tracks",
-                            line=dict(color="#FF0066" if st.session_state.theme == "graffiti" else "#1f77b4")
-                        ),
-                        go.Scatter(
-                            x=past_df["Period"],
-                            y=past_df["Albums"],
-                            mode="lines+markers",
-                            name="Albums",
-                            line=dict(color="#00FFCC" if st.session_state.theme == "graffiti" else "#ff7f0e")
-                        ),
-                        go.Scatter(
-                            x=past_df["Period"],
-                            y=past_df["Artists"],
-                            mode="lines+markers",
-                            name="Artists",
-                            line=dict(color="#FFCC00" if st.session_state.theme == "graffiti" else "#2ca02c")
-                        )
-                    ])
-                    fig_past.update_layout(
-                        title="",
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)"
-                    )
-                    st.plotly_chart(fig_past, use_container_width=True)
-                else:
-                    st.markdown("<div class='error-card'>No past data available.</div>", unsafe_allow_html=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
 
 # Footer
 st.markdown("""
