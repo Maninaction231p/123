@@ -7,10 +7,15 @@ from datetime import datetime, timedelta
 from sklearn.metrics.pairwise import cosine_similarity
 import base64
 import time
+from PIL import Image
+from io import BytesIO
 
-# Last.fm API credentials
-API_KEY = "753fc4d46f7cca298471985943b54e4a"
-BASE_URL = "http://ws.audioscrobbler.com/2.0/"
+# Last.fm and Discogs API credentials
+LASTFM_API_KEY = "753fc4d46f7cca298471985943b54e4a"
+DISCOGS_API_KEY = "TcITSWbkmvuHBAcFznWn"
+
+BASE_URL_LASTFM = "http://ws.audioscrobbler.com/2.0/"
+BASE_URL_DISCOGS = "https://api.discogs.com/database/search"
 
 # Fetch scrobbles from Last.fm
 def fetch_scrobbles(username, limit=1000):
@@ -23,11 +28,11 @@ def fetch_scrobbles(username, limit=1000):
 
     while page <= total_pages:
         data = requests.get(
-            BASE_URL,
+            BASE_URL_LASTFM,
             params={
                 "method": "user.getrecenttracks",
                 "user": username,
-                "api_key": API_KEY,
+                "api_key": LASTFM_API_KEY,
                 "format": "json",
                 "limit": 200,
                 "page": page,
@@ -71,6 +76,23 @@ def process_scrobbles(raw_scrobbles):
     return pd.DataFrame(processed)
 
 
+# Fetch album art from Discogs API
+def fetch_album_art(artist, album):
+    response = requests.get(
+        BASE_URL_DISCOGS,
+        params={
+            "artist": artist,
+            "release_title": album,
+            "key": DISCOGS_API_KEY,
+            "format": "json",
+        },
+    ).json()
+
+    if response.get("results"):
+        return response["results"][0]["cover_image"]
+    return None
+
+
 # Generate recommendations using cosine similarity
 def get_recommendations(df):
     top_artists = df["artist"].value_counts().head(10).index
@@ -92,6 +114,94 @@ def find_forgotten_tracks(df, threshold_days=365):
         (datetime.utcnow() - latest_listen).dt.days > threshold_days
     ]
     return forgotten_tracks.sort_values()
+
+
+# Display a mini-game during loading
+def display_mini_game():
+    html_content = """
+    <div style="text-align:center; margin-top:20px;">
+        <canvas id="dinoGame" width="400" height="200"></canvas>
+        <script>
+            const canvas = document.getElementById('dinoGame');
+            const ctx = canvas.getContext('2d');
+
+            let dino = { x: 50, y: 150, width: 20, height: 20, dy: 0, jumping: false };
+            let obstacles = [];
+            let score = 0;
+            let gameOver = false;
+
+            function drawDino() {
+                ctx.fillStyle = 'green';
+                ctx.fillRect(dino.x, dino.y, dino.width, dino.height);
+            }
+
+            function updateDino() {
+                if (dino.jumping) {
+                    dino.y += dino.dy;
+                    dino.dy += 0.5;
+                    if (dino.y >= 150) {
+                        dino.y = 150;
+                        dino.jumping = false;
+                        dino.dy = 0;
+                    }
+                }
+            }
+
+            function spawnObstacle() {
+                if (Math.random() < 0.02) {
+                    obstacles.push({ x: 400, y: 150, width: 20, height: 20 });
+                }
+            }
+
+            function drawObstacles() {
+                ctx.fillStyle = 'red';
+                obstacles.forEach(obstacle => {
+                    obstacle.x -= 2;
+                    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                });
+            }
+
+            function checkCollision() {
+                obstacles.forEach(obstacle => {
+                    if (dino.x < obstacle.x + obstacle.width &&
+                        dino.x + dino.width > obstacle.x &&
+                        dino.y < obstacle.y + obstacle.height &&
+                        dino.y + dino.height > obstacle.y) {
+                        gameOver = true;
+                    }
+                });
+            }
+
+            function updateScore() {
+                score++;
+                document.getElementById('score').innerText = `Score: ${score}`;
+            }
+
+            function gameLoop() {
+                if (gameOver) return;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawDino();
+                updateDino();
+                spawnObstacle();
+                drawObstacles();
+                checkCollision();
+                updateScore();
+                requestAnimationFrame(gameLoop);
+            }
+
+            document.addEventListener('keydown', () => {
+                if (!dino.jumping) {
+                    dino.jumping = true;
+                    dino.dy = -7;
+                }
+            });
+
+            gameLoop();
+        </script>
+        <p id="score">Score: 0</p>
+    </div>
+    """
+    st.components.v1.html(html_content, height=300)
 
 
 # Main app
@@ -133,6 +243,16 @@ def main():
             if not raw_scrobbles:
                 return
             df = process_scrobbles(raw_scrobbles)
+
+        # Show mini-game while processing
+        display_mini_game()
+
+        # Fill missing images
+        st.write("Filling missing album art...")
+        for idx, row in df.iterrows():
+            if pd.isna(row["image_url"]) or not row["image_url"]:
+                image_url = fetch_album_art(row["artist"], row["album"])
+                df.at[idx, "image_url"] = image_url
 
         # Overview metrics
         st.header("Listening Overview")
